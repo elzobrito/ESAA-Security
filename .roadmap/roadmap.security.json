@@ -1,0 +1,642 @@
+{
+  "meta": {
+    "schema_version": "0.4.0",
+    "esaa_version": "0.3.0",
+    "immutable_done": true,
+    "master_correlation_id": null,
+    "run": {
+      "run_id": null,
+      "status": "initialized",
+      "last_event_seq": 0,
+      "projection_hash_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "verify_status": "unknown"
+    },
+    "updated_at": "2026-03-04T00:00:00Z"
+  },
+  "project": {
+    "name": "PARCER Security Audit",
+    "audit_scope": "Full-stack security audit covering 16 domains (secrets, dependencies, authentication, authorization, API security, input validation, file upload, session security, cryptography, security headers, logging, infrastructure, DevSecOps, data security, frontend security, AI/LLM security) with agent-executable playbooks and ESAA lifecycle governance."
+  },
+  "tasks": [
+    {
+      "task_id": "SEC-001",
+      "task_kind": "spec",
+      "title": "Identificar stack tecnológica",
+      "description": "Mapear linguagens, frameworks, bancos de dados, serviços cloud e dependências externas do sistema auditado.",
+      "status": "todo",
+      "depends_on": [],
+      "targets": [
+        "package.json",
+        "requirements.txt",
+        "go.mod",
+        "Cargo.toml",
+        "composer.json",
+        "Gemfile",
+        "pom.xml",
+        "Dockerfile",
+        "docker-compose.yml"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase1/tech-stack-inventory.md"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-002",
+      "task_kind": "spec",
+      "title": "Identificar arquitetura do sistema",
+      "description": "Documentar componentes, fluxos de dados, pontos de integração e fronteiras de confiança.",
+      "status": "todo",
+      "depends_on": ["SEC-001"],
+      "targets": [
+        "docker-compose.yml",
+        "k8s/",
+        "terraform/",
+        "docs/architecture.md"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase1/architecture-map.md",
+          "reports/phase1/data-flow-diagram.md"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-003",
+      "task_kind": "spec",
+      "title": "Identificar superfícies de ataque",
+      "description": "Enumerar todos os pontos de entrada: endpoints, interfaces, uploads, websockets, APIs externas.",
+      "status": "todo",
+      "depends_on": ["SEC-002"],
+      "targets": [
+        "src/routes/",
+        "src/controllers/",
+        "src/handlers/",
+        "openapi.yaml",
+        "swagger.json"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase1/attack-surface-inventory.md"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-010",
+      "task_kind": "impl",
+      "title": "Auditar Secrets & Configuração",
+      "description": "Verificar exposição de segredos hardcoded, chaves API no frontend, .env commitados, CORS permissivo, debug mode, credenciais padrão, configs de exemplo e variáveis sensíveis em logs. Playbook: secrets_config (SC-001 a SC-008).",
+      "status": "todo",
+      "depends_on": ["SEC-003"],
+      "targets": [
+        "**/*.{js,ts,py,go,java,php,rb,cs,rs}",
+        "**/*.{json,yaml,yml,toml,xml,ini,cfg}",
+        ".env*",
+        ".gitignore",
+        "docker-compose*.yml"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/secrets-config-audit.md",
+          "reports/phase2/results/SEC-010.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-011",
+      "task_kind": "impl",
+      "title": "Auditar Dependências e Supply Chain",
+      "description": "Analisar dependências com CVEs conhecidos, pacotes abandonados, typosquatting, lockfile, builds não reproduzíveis. Playbook: dependencies_supply_chain (DS-001 a DS-006).",
+      "status": "todo",
+      "depends_on": ["SEC-001"],
+      "targets": [
+        "package.json",
+        "package-lock.json",
+        "yarn.lock",
+        "requirements.txt",
+        "Pipfile.lock",
+        "go.sum",
+        "Cargo.lock",
+        "Dockerfile"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/dependencies-audit.md",
+          "reports/phase2/results/SEC-011.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-012",
+      "task_kind": "impl",
+      "title": "Auditar Autenticação",
+      "description": "Avaliar hash de senhas, MFA, reset de senha, expiração de sessão, brute force, tokens permanentes e session fixation. Playbook: authentication (AU-001 a AU-008).",
+      "status": "todo",
+      "depends_on": ["SEC-003"],
+      "targets": [
+        "src/models/user*",
+        "src/auth/",
+        "src/middleware/auth*",
+        "src/controllers/auth*",
+        "src/routes/auth*"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/authentication-audit.md",
+          "reports/phase2/results/SEC-012.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-013",
+      "task_kind": "impl",
+      "title": "Auditar Autorização",
+      "description": "Verificar controle de acesso, IDOR, permissões só no frontend, admin routes, escopo de permissões e ações sem confirmação. Playbook: authorization (AZ-001 a AZ-006).",
+      "status": "todo",
+      "depends_on": ["SEC-012"],
+      "targets": [
+        "src/middleware/",
+        "src/policies/",
+        "src/guards/",
+        "src/routes/",
+        "src/controllers/"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/authorization-audit.md",
+          "reports/phase2/results/SEC-013.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-014",
+      "task_kind": "impl",
+      "title": "Auditar Segurança de API",
+      "description": "Avaliar rate limiting, over-fetching, enumeração de usuários, validação de schema, versionamento, paginação e replay attacks. Playbook: api_security (AP-001 a AP-007).",
+      "status": "todo",
+      "depends_on": ["SEC-003"],
+      "targets": [
+        "src/routes/",
+        "src/controllers/",
+        "src/middleware/rateLimit*",
+        "src/validators/",
+        "src/serializers/"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/api-security-audit.md",
+          "reports/phase2/results/SEC-014.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-015",
+      "task_kind": "impl",
+      "title": "Auditar Validação de Entrada",
+      "description": "Testar SQL injection, command injection, template injection, SSRF, XSS, inputs não validados e sanitização ausente. Playbook: input_validation (IV-001 a IV-007).",
+      "status": "todo",
+      "depends_on": ["SEC-003"],
+      "targets": [
+        "src/controllers/",
+        "src/handlers/",
+        "src/routes/",
+        "src/models/",
+        "src/repositories/",
+        "src/templates/"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/input-validation-audit.md",
+          "reports/phase2/results/SEC-015.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-016",
+      "task_kind": "impl",
+      "title": "Auditar Upload de Arquivos",
+      "description": "Verificar validação de tipo, limite de tamanho, storage seguro, antivírus, uploads executáveis e filenames não sanitizados. Playbook: file_upload (FU-001 a FU-006).",
+      "status": "todo",
+      "depends_on": ["SEC-003"],
+      "targets": [
+        "src/controllers/upload*",
+        "src/middleware/upload*",
+        "src/services/storage*",
+        "src/config/multer*"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/file-upload-audit.md",
+          "reports/phase2/results/SEC-016.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-017",
+      "task_kind": "impl",
+      "title": "Auditar Segurança de Sessão",
+      "description": "Avaliar cookies httpOnly/Secure/SameSite, CSRF tokens, expiração de sessão e tokens reutilizáveis. Playbook: session_security (SS-001 a SS-006).",
+      "status": "todo",
+      "depends_on": ["SEC-012"],
+      "targets": [
+        "src/config/session*",
+        "src/middleware/csrf*",
+        "src/middleware/session*",
+        "src/auth/"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/session-security-audit.md",
+          "reports/phase2/results/SEC-017.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-018",
+      "task_kind": "impl",
+      "title": "Auditar Criptografia",
+      "description": "Verificar HTTPS obrigatório, algoritmos criptográficos, encryption at-rest, chaves expostas e rotação de chaves. Playbook: cryptography (CR-001 a CR-005).",
+      "status": "todo",
+      "depends_on": ["SEC-003"],
+      "targets": [
+        "src/config/",
+        "src/utils/crypto*",
+        "src/services/encrypt*",
+        "nginx.conf",
+        "infra/"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/cryptography-audit.md",
+          "reports/phase2/results/SEC-018.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-019",
+      "task_kind": "impl",
+      "title": "Auditar Headers de Segurança",
+      "description": "Verificar CSP, HSTS, X-Frame-Options, X-Content-Type-Options e Referrer-Policy. Playbook: security_headers (SH-001 a SH-005).",
+      "status": "todo",
+      "depends_on": ["SEC-003"],
+      "targets": [
+        "src/middleware/helmet*",
+        "src/middleware/headers*",
+        "src/config/security*",
+        "nginx.conf"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/security-headers-audit.md",
+          "reports/phase2/results/SEC-019.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-020",
+      "task_kind": "impl",
+      "title": "Auditar Logs e Monitoramento",
+      "description": "Avaliar dados sensíveis em logs, audit trail, logs estruturados, alertas de segurança e correlation IDs. Playbook: logging_monitoring (LM-001 a LM-005).",
+      "status": "todo",
+      "depends_on": ["SEC-003"],
+      "targets": [
+        "src/config/logger*",
+        "src/middleware/logging*",
+        "src/utils/logger*",
+        "src/services/alert*"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/logging-monitoring-audit.md",
+          "reports/phase2/results/SEC-020.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-021",
+      "task_kind": "impl",
+      "title": "Auditar Infraestrutura",
+      "description": "Verificar HTTPS, firewall, WAF, segmentação de rede, backups e proteção DDoS. Playbook: infrastructure (IF-001 a IF-006).",
+      "status": "todo",
+      "depends_on": ["SEC-002"],
+      "targets": [
+        "docker-compose*.yml",
+        "Dockerfile*",
+        "k8s/",
+        "terraform/",
+        "nginx.conf",
+        "infra/"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/infrastructure-audit.md",
+          "reports/phase2/results/SEC-021.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-022",
+      "task_kind": "impl",
+      "title": "Auditar DevSecOps",
+      "description": "Avaliar code review, pipeline de segurança, secrets scanning, SAST, DAST e audit trail de deploy. Playbook: devsecops (DO-001 a DO-006).",
+      "status": "todo",
+      "depends_on": ["SEC-011"],
+      "targets": [
+        ".github/workflows/",
+        ".gitlab-ci.yml",
+        "Jenkinsfile",
+        ".pre-commit-config.yaml",
+        "CODEOWNERS",
+        "sonar-project.properties"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/devsecops-audit.md",
+          "reports/phase2/results/SEC-022.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-023",
+      "task_kind": "impl",
+      "title": "Auditar Segurança de Dados",
+      "description": "Verificar proteção de PII, minimização, política de retenção, anonimização e conformidade LGPD/GDPR. Playbook: data_security (DA-001 a DA-005).",
+      "status": "todo",
+      "depends_on": ["SEC-003"],
+      "targets": [
+        "src/models/",
+        "src/migrations/",
+        "src/schemas/",
+        "docs/privacy*",
+        "docs/lgpd*"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/data-security-audit.md",
+          "reports/phase2/results/SEC-023.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-024",
+      "task_kind": "impl",
+      "title": "Auditar Segurança de Frontend",
+      "description": "Verificar tokens em localStorage, HTML não sanitizado, dependências JS vulneráveis e lógica crítica no frontend. Playbook: frontend_security (FE-001 a FE-004).",
+      "status": "todo",
+      "depends_on": ["SEC-003"],
+      "targets": [
+        "src/components/",
+        "src/pages/",
+        "src/views/",
+        "src/stores/",
+        "public/",
+        "client/"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/frontend-security-audit.md",
+          "reports/phase2/results/SEC-024.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-025",
+      "task_kind": "impl",
+      "title": "Auditar Segurança de IA/LLM",
+      "description": "Avaliar prompt injection, escopo de ferramentas do LLM, filtragem de input, exfiltração de dados e audit log de decisões. Playbook: ai_llm_security (AI-001 a AI-005).",
+      "status": "todo",
+      "depends_on": ["SEC-003"],
+      "targets": [
+        "src/ai/",
+        "src/agents/",
+        "src/llm/",
+        "src/prompts/",
+        "src/tools/",
+        "src/services/ai*"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/ai-llm-security-audit.md",
+          "reports/phase2/results/SEC-025.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-030",
+      "task_kind": "qa",
+      "title": "Consolidar vulnerabilidades identificadas",
+      "description": "Agregar todas as vulnerabilidades encontradas na fase de auditoria em inventário único com IDs, domínio de origem e evidências técnicas.",
+      "status": "todo",
+      "depends_on": [
+        "SEC-010", "SEC-011", "SEC-012", "SEC-013", "SEC-014",
+        "SEC-015", "SEC-016", "SEC-017", "SEC-018", "SEC-019",
+        "SEC-020", "SEC-021", "SEC-022", "SEC-023", "SEC-024", "SEC-025"
+      ],
+      "targets": [
+        "reports/phase2/results/"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase3/vulnerability-inventory.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-031",
+      "task_kind": "qa",
+      "title": "Classificar severidade e impacto",
+      "description": "Atribuir severidade (CRITICAL/HIGH/MEDIUM/LOW/INFO) e avaliar impacto CIA (confidencialidade, integridade, disponibilidade) de cada vulnerabilidade com justificativa técnica.",
+      "status": "todo",
+      "depends_on": ["SEC-030"],
+      "targets": [
+        "reports/phase3/vulnerability-inventory.json"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase3/classified-vulnerabilities.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-032",
+      "task_kind": "qa",
+      "title": "Gerar Matriz de Riscos",
+      "description": "Produzir matriz consolidada: vulnerabilidade × categoria × severidade × impacto × recomendação, ordenada por severidade decrescente.",
+      "status": "todo",
+      "depends_on": ["SEC-031"],
+      "targets": [
+        "reports/phase3/classified-vulnerabilities.json"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase3/risk-matrix.json",
+          "reports/phase3/risk-matrix.md"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-040",
+      "task_kind": "spec",
+      "title": "Propor correções técnicas",
+      "description": "Para cada vulnerabilidade CRITICAL e HIGH, detalhar correção técnica específica com snippets de código/configuração e esforço estimado.",
+      "status": "todo",
+      "depends_on": ["SEC-032"],
+      "targets": [
+        "reports/phase3/risk-matrix.json"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase4/technical-remediations.md"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-041",
+      "task_kind": "spec",
+      "title": "Documentar boas práticas",
+      "description": "Consolidar boas práticas de segurança organizadas por domínio, com referências a OWASP, CIS e NIST, verificando aplicabilidade ao contexto do sistema.",
+      "status": "todo",
+      "depends_on": ["SEC-032"],
+      "targets": [
+        "reports/phase3/risk-matrix.json",
+        "reports/phase2/results/"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase4/best-practices.md"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-042",
+      "task_kind": "qa",
+      "title": "Gerar Resumo Executivo",
+      "description": "Produzir resumo executivo (max 1 página) com score final de segurança (0-100), top 5 riscos prioritários e recomendações de ação imediata.",
+      "status": "todo",
+      "depends_on": ["SEC-040", "SEC-041"],
+      "targets": [
+        "reports/phase4/technical-remediations.md",
+        "reports/phase4/best-practices.md",
+        "reports/phase3/risk-matrix.json"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase4/executive-summary.md"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-043",
+      "task_kind": "qa",
+      "title": "Compilar Relatório Final de Auditoria",
+      "description": "Montar relatório completo: Resumo Executivo, Matriz de Vulnerabilidades, Análise Detalhada por Categoria, Riscos Prioritários, Recomendações Técnicas. Score final com justificativa. Todos os achados rastreáveis aos checks do PARCER.",
+      "status": "todo",
+      "depends_on": ["SEC-042"],
+      "targets": [
+        "reports/phase4/executive-summary.md",
+        "reports/phase3/risk-matrix.md",
+        "reports/phase4/technical-remediations.md",
+        "reports/phase4/best-practices.md",
+        "reports/phase2/results/"
+      ],
+      "outputs": {
+        "files": [
+          "reports/final/security-audit-report.md",
+          "reports/final/security-audit-report.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    }
+  ],
+  "indexes": {
+    "by_status": {
+      "todo": 26,
+      "in_progress": 0,
+      "review": 0,
+      "done": 0
+    },
+    "by_kind": {
+      "spec": 5,
+      "impl": 16,
+      "qa": 5
+    }
+  }
+}

@@ -1,0 +1,1874 @@
+{
+  "$schema": "playbooks.security.v1",
+  "metadata": {
+    "name": "PARCER Security Playbooks",
+    "version": "1.0.0",
+    "created_at": "2026-03-04T00:00:00Z",
+    "roadmap_ref": "roadmap.security.json",
+    "target_executor": "claude-code-agent",
+    "description": "Instruções executáveis por domínio para agentes autônomos realizarem auditoria de segurança baseada no PARCER Security Auditor."
+  },
+
+  "global_input_contract": {
+    "required": {
+      "repo_path": {
+        "type": "string",
+        "description": "Caminho absoluto para o repositório do sistema a ser auditado.",
+        "example": "/home/user/project"
+      }
+    },
+    "optional": {
+      "endpoint_base_url": {
+        "type": "string",
+        "description": "URL base da aplicação em execução para testes dinâmicos.",
+        "example": "http://localhost:3000"
+      },
+      "docs_path": {
+        "type": "string",
+        "description": "Caminho para documentação técnica ou de arquitetura.",
+        "example": "/home/user/project/docs"
+      },
+      "infra_config_path": {
+        "type": "string",
+        "description": "Caminho para configs de infra (docker-compose, k8s manifests, terraform).",
+        "example": "/home/user/project/infra"
+      },
+      "ci_config_path": {
+        "type": "string",
+        "description": "Caminho para configs de CI/CD (.github/workflows, .gitlab-ci.yml, Jenkinsfile).",
+        "example": "/home/user/project/.github/workflows"
+      }
+    }
+  },
+
+  "result_schema": {
+    "per_check": {
+      "check_id": "string",
+      "check_name": "string",
+      "status": "enum: pass | fail | partial | not_applicable | error",
+      "severity_if_fail": "enum: CRITICAL | HIGH | MEDIUM | LOW | INFO",
+      "evidence": {
+        "files": ["string"],
+        "lines": ["string"],
+        "commands_output": ["string"],
+        "description": "string"
+      },
+      "remediation": "string"
+    },
+    "per_task": {
+      "task_id": "string",
+      "domain": "string",
+      "checks_total": "integer",
+      "checks_pass": "integer",
+      "checks_fail": "integer",
+      "checks_partial": "integer",
+      "checks_na": "integer",
+      "worst_severity": "enum: CRITICAL | HIGH | MEDIUM | LOW | INFO | NONE",
+      "results": ["per_check"]
+    }
+  },
+
+  "playbooks": {
+
+    "secrets_config": {
+      "task_ref": "SEC-010",
+      "domain": "secrets_config",
+      "title": "Secrets & Configuração",
+      "priority": "critical",
+      "input_requirements": {
+        "required": ["repo_path"],
+        "optional": ["endpoint_base_url"]
+      },
+      "checks": [
+        {
+          "check_id": "SC-001",
+          "name": "Segredos hardcoded no código",
+          "severity_if_fail": "CRITICAL",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn --include='*.{js,ts,py,go,java,php,rb,cs,rs}' -iE '(password|passwd|secret|api_key|apikey|access_token|private_key|db_pass)\\s*[:=]\\s*[\"\\x27][^\"\\x27]{8,}' ${repo_path}",
+              "grep -rn --include='*.{js,ts,py,go,java,php,rb,cs,rs}' -iE '(aws_secret|aws_access|AKIA[0-9A-Z]{16})' ${repo_path}",
+              "grep -rn --include='*.{js,ts,py,go,java,php,rb,cs,rs}' -iE 'BEGIN (RSA|DSA|EC|OPENSSH) PRIVATE KEY' ${repo_path}",
+              "grep -rn --include='*.{json,yaml,yml,toml,xml,ini,cfg}' -iE '(password|secret|key|token)\\s*[:=]\\s*[\"\\x27][^\"\\x27]{8,}' ${repo_path}",
+              "Verificar se há ferramenta de secrets management referenciada (Vault, AWS Secrets Manager, Azure Key Vault, doppler, etc.)."
+            ],
+            "exclude_patterns": [
+              "**/node_modules/**",
+              "**/.git/**",
+              "**/vendor/**",
+              "**/dist/**",
+              "**/build/**",
+              "**/*test*/**",
+              "**/*spec*/**",
+              "**/*mock*/**",
+              "**/examples/**"
+            ],
+            "pass_criteria": "Nenhuma credencial real encontrada em código-fonte. Valores encontrados são placeholders, referências a env vars, ou constantes de teste.",
+            "fail_criteria": "Qualquer credencial real, token válido ou chave privada encontrada em código-fonte.",
+            "false_positive_guidance": "Constantes como 'password' em nomes de campo de formulário, variáveis que leem de env vars (process.env.X, os.getenv()), valores em arquivos de teste com prefixo 'test_' ou 'mock_' são falsos positivos."
+          },
+          "remediation": "Mover todos os segredos para variáveis de ambiente ou secrets manager. Rotacionar imediatamente qualquer segredo que tenha sido commitado. Adicionar patterns ao .gitignore."
+        },
+        {
+          "check_id": "SC-002",
+          "name": "Chaves API expostas no frontend",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Identificar diretórios de frontend: buscar por src/components, src/pages, public/, static/, app/, pages/, client/.",
+              "grep -rn --include='*.{js,ts,jsx,tsx,vue,svelte,html}' -iE '(api_key|apikey|secret_key|private_key|auth_token|bearer)\\s*[:=]\\s*[\"\\x27]' ${frontend_dirs}",
+              "grep -rn --include='*.{js,ts,jsx,tsx}' -iE 'NEXT_PUBLIC_|VITE_|REACT_APP_|NUXT_' ${repo_path} | grep -iE '(secret|private|key|token|password)'",
+              "Verificar se chaves expostas no frontend são read-only/public por design (ex: Stripe publishable key, Firebase config)."
+            ],
+            "pass_criteria": "Nenhuma chave secreta no código frontend. Apenas chaves públicas by-design (publishable keys) presentes.",
+            "fail_criteria": "Chaves secretas, tokens de acesso ou credenciais de backend encontradas em código acessível ao browser."
+          },
+          "remediation": "Mover chamadas que requerem chaves secretas para o backend. Usar proxy endpoints. Chaves de frontend devem ser exclusivamente read-only e escopadas."
+        },
+        {
+          "check_id": "SC-003",
+          "name": "Arquivos .env commitados no repositório",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "find ${repo_path} -name '.env' -o -name '.env.local' -o -name '.env.production' -o -name '.env.staging' | grep -v node_modules | grep -v .git",
+              "git -C ${repo_path} log --all --diff-filter=A -- '*.env' '*.env.*' 2>/dev/null",
+              "cat ${repo_path}/.gitignore 2>/dev/null | grep -E '\\.env'",
+              "Se .env encontrado: verificar se contém valores reais ou apenas placeholders/exemplos."
+            ],
+            "pass_criteria": ".env não presente no repositório OU presente apenas como .env.example com placeholders. .gitignore inclui .env patterns.",
+            "fail_criteria": "Arquivo .env com valores reais commitado. .gitignore não protege arquivos .env."
+          },
+          "remediation": "Adicionar .env* ao .gitignore. Remover do histórico git com git filter-branch ou BFG. Rotacionar credenciais expostas. Manter apenas .env.example com placeholders."
+        },
+        {
+          "check_id": "SC-004",
+          "name": "CORS permissivo",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "hybrid",
+            "steps": [
+              "grep -rn --include='*.{js,ts,py,go,java,php,rb}' -iE '(cors|access-control-allow-origin)' ${repo_path}",
+              "Buscar por patterns: 'origin: *', 'Access-Control-Allow-Origin: *', 'AllowAllOrigins', 'allow_all_origins', 'cors({ origin: true })'.",
+              "Se endpoint_base_url disponível: curl -sI -H 'Origin: https://evil.com' ${endpoint_base_url}/api/ | grep -i access-control",
+              "Verificar se credentials:true está combinado com origin:* (vulnerabilidade real)."
+            ],
+            "pass_criteria": "CORS configurado com whitelist de origens específicas. Wildcard não usado com credentials.",
+            "fail_criteria": "Access-Control-Allow-Origin: * combinado com Access-Control-Allow-Credentials: true. Ou wildcard em endpoints autenticados."
+          },
+          "remediation": "Configurar CORS com whitelist explícita de origens permitidas. Nunca combinar wildcard com credentials. Diferentes configs para ambientes dev/staging/prod."
+        },
+        {
+          "check_id": "SC-005",
+          "name": "Debug mode habilitado em produção",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn --include='*.{js,ts,py,go,java,php,rb,yaml,yml,json,toml}' -iE '(DEBUG\\s*[:=]\\s*(true|1|yes|on)|app\\.debug|FLASK_DEBUG|DJANGO_DEBUG|NODE_ENV.*development)' ${repo_path}",
+              "Verificar se há condicional de ambiente: if (process.env.NODE_ENV !== 'production'), if not os.environ.get('ENV') == 'production'.",
+              "Buscar por stack traces expostos: grep -rn 'stack.*trace\\|traceback\\|detailed.*error' em handlers de erro.",
+              "Verificar configs de produção específicas: docker-compose.prod.yml, Dockerfile, deployment manifests."
+            ],
+            "pass_criteria": "Debug desabilitado em configs de produção. Erros retornam mensagens genéricas em produção. Stack traces não expostos.",
+            "fail_criteria": "DEBUG=true em configuração de produção. Stack traces ou detalhes internos expostos em respostas de erro."
+          },
+          "remediation": "Garantir DEBUG=false em produção. Implementar error handler que retorna mensagens genéricas ao client e loga detalhes internamente. Usar variáveis de ambiente por ambiente."
+        },
+        {
+          "check_id": "SC-006",
+          "name": "Credenciais padrão ainda presentes",
+          "severity_if_fail": "CRITICAL",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn -iE '(admin:admin|root:root|user:password|admin:password|admin:123456|test:test|default.*password)' ${repo_path}",
+              "Verificar docker-compose*.yml por credenciais padrão em services de DB: POSTGRES_PASSWORD, MYSQL_ROOT_PASSWORD, MONGO_INITDB_ROOT_PASSWORD.",
+              "Buscar por seeds/fixtures com credenciais: find ${repo_path} -name '*seed*' -o -name '*fixture*' | xargs grep -liE 'password'",
+              "Verificar se credenciais padrão são exclusivas de ambiente de desenvolvimento e não alcançam produção."
+            ],
+            "pass_criteria": "Nenhuma credencial padrão em código de produção. Seeds/fixtures de dev claramente isolados de configs de produção.",
+            "fail_criteria": "Credenciais padrão em configurações que podem alcançar produção. Banco de dados com passwords triviais em docker-compose sem override de produção."
+          },
+          "remediation": "Substituir todas as credenciais padrão por valores gerados. Exigir variáveis de ambiente para credenciais em todos os ambientes. Usar secret generation no deploy."
+        },
+        {
+          "check_id": "SC-007",
+          "name": "Configurações de exemplo em produção",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "find ${repo_path} -name '*.example' -o -name '*.sample' -o -name '*.template' -o -name '*example*config*'",
+              "Verificar se Dockerfiles copiam configs de exemplo: grep -n 'COPY.*example\\|COPY.*sample' ${repo_path}/Dockerfile*",
+              "Verificar se há config de produção separada e se ela difere significativamente da config de exemplo.",
+              "diff entre config.example e config real (se ambos existirem)."
+            ],
+            "pass_criteria": "Configs de exemplo são claramente templates. Configs de produção existem separadamente e não são derivações diretas sem modificação.",
+            "fail_criteria": "Config de produção é cópia direta do exemplo. Dockerfile usa config de exemplo em build de produção."
+          },
+          "remediation": "Manter configs de exemplo apenas como referência. Gerar configs de produção via CI/CD com valores injetados de secrets manager."
+        },
+        {
+          "check_id": "SC-008",
+          "name": "Variáveis sensíveis expostas em logs",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn --include='*.{js,ts,py,go,java,php,rb}' -E '(console\\.log|logger\\.|log\\.info|log\\.debug|print|fmt\\.Print|logging\\.)' ${repo_path} | grep -iE '(password|token|secret|key|credential|authorization|cookie|session)'",
+              "Verificar se há middleware de sanitização de logs: grep -rn 'redact\\|mask\\|sanitize.*log\\|filter.*sensitive' ${repo_path}",
+              "Buscar por request/response logging que pode incluir headers de auth: grep -rn 'req\\.headers\\|request\\.headers\\|logRequest\\|logResponse' ${repo_path}",
+              "Verificar se structured logging mascara campos sensíveis."
+            ],
+            "pass_criteria": "Logs não contêm dados sensíveis. Há sanitização ou redação de campos sensíveis antes de logar. Headers de auth não são logados.",
+            "fail_criteria": "Variáveis com nomes sensíveis logadas diretamente. Request headers incluindo Authorization logados sem redação."
+          },
+          "remediation": "Implementar middleware de redação de logs. Mascarar campos sensíveis (password → '***', tokens → primeiros 4 chars + '...'). Nunca logar request/response bodies completos em produção."
+        }
+      ]
+    },
+
+    "dependencies_supply_chain": {
+      "task_ref": "SEC-011",
+      "domain": "dependencies_supply_chain",
+      "title": "Dependências e Supply Chain",
+      "priority": "high",
+      "input_requirements": {
+        "required": ["repo_path"],
+        "optional": []
+      },
+      "checks": [
+        {
+          "check_id": "DS-001",
+          "name": "Dependências com vulnerabilidades conhecidas",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "tool_execution",
+            "steps": [
+              "Identificar gerenciador de pacotes: ls ${repo_path}/{package.json,requirements.txt,Pipfile,go.mod,Cargo.toml,composer.json,Gemfile,pom.xml,build.gradle}",
+              "Node.js: npm audit --json 2>/dev/null || yarn audit --json 2>/dev/null",
+              "Python: pip-audit -r requirements.txt --format json 2>/dev/null || safety check -r requirements.txt --json 2>/dev/null",
+              "Go: govulncheck ./... 2>/dev/null",
+              "Se ferramentas não disponíveis: grep versões em lockfile e verificar contra CVE databases conhecidas.",
+              "Classificar findings por severidade: critical, high, medium, low."
+            ],
+            "pass_criteria": "Zero vulnerabilidades críticas ou altas sem mitigação documentada.",
+            "fail_criteria": "Vulnerabilidades críticas ou altas presentes sem fix disponível ou mitigação."
+          },
+          "remediation": "Atualizar dependências vulneráveis. Se update não possível, documentar mitigação. Configurar dependabot/renovate para updates automáticos."
+        },
+        {
+          "check_id": "DS-002",
+          "name": "Dependências abandonadas",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Extrair lista de dependências diretas do manifest (package.json, requirements.txt, go.mod, etc.).",
+              "Para cada dependência: verificar data do último release/commit no registry.",
+              "Classificar como abandonada se: último update > 2 anos E sem maintainer ativo E issues abertas sem resposta.",
+              "Verificar se dependência abandonada tem alternativa mantida."
+            ],
+            "pass_criteria": "Nenhuma dependência crítica abandonada. Dependências sem manutenção recente têm alternativas identificadas.",
+            "fail_criteria": "Dependências em paths críticos (auth, crypto, parsing) sem manutenção há mais de 2 anos."
+          },
+          "remediation": "Substituir dependências abandonadas por alternativas mantidas. Se substituição não viável, documentar risco e monitorar CVEs manualmente."
+        },
+        {
+          "check_id": "DS-003",
+          "name": "Typosquatting packages",
+          "severity_if_fail": "CRITICAL",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Extrair lista de dependências do manifest.",
+              "Comparar nomes contra lista de pacotes populares conhecidos: verificar variações de 1-2 caracteres (ex: 'lodahs' vs 'lodash', 'requets' vs 'requests').",
+              "Verificar pacotes com download count muito baixo em comparação com seus nomes (pacotes legítimos populares vs impostores).",
+              "Verificar se há pacotes com escopos/@orgs suspeitos que imitam pacotes oficiais."
+            ],
+            "pass_criteria": "Todas as dependências correspondem a pacotes legítimos e bem estabelecidos.",
+            "fail_criteria": "Qualquer dependência com nome suspeitamente similar a pacote popular mas de autor diferente."
+          },
+          "remediation": "Remover pacotes suspeitos imediatamente. Auditar o que o pacote faz. Verificar se houve execução de postinstall scripts maliciosos."
+        },
+        {
+          "check_id": "DS-004",
+          "name": "Dependências sem lockfile",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Verificar presença de lockfile: ls ${repo_path}/{package-lock.json,yarn.lock,pnpm-lock.yaml,Pipfile.lock,poetry.lock,go.sum,Cargo.lock,composer.lock,Gemfile.lock}",
+              "Verificar se lockfile está no .gitignore (não deveria estar para apps): grep -E 'lock' ${repo_path}/.gitignore",
+              "Verificar se lockfile está atualizado: comparar timestamps do manifest vs lockfile."
+            ],
+            "pass_criteria": "Lockfile presente, commitado no repositório e consistente com o manifest.",
+            "fail_criteria": "Lockfile ausente ou no .gitignore. Manifest modificado sem atualização do lockfile."
+          },
+          "remediation": "Gerar lockfile e commitar no repositório. Configurar CI para falhar se lockfile estiver desatualizado. Usar --frozen-lockfile no CI."
+        },
+        {
+          "check_id": "DS-005",
+          "name": "Dependências externas não auditadas",
+          "severity_if_fail": "LOW",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Listar todas as dependências diretas e contar total de dependências transitivas.",
+              "Verificar se há política de aprovação de dependências documentada.",
+              "Identificar dependências que executam native code ou postinstall scripts: grep -r 'postinstall\\|preinstall\\|install.*script' ${repo_path}/node_modules/*/package.json 2>/dev/null | head -20"
+            ],
+            "pass_criteria": "Dependências diretas são conhecidas e justificadas. Scripts de postinstall são de pacotes confiáveis.",
+            "fail_criteria": "Grande número de dependências transitivas sem visibilidade. Scripts de postinstall de pacotes desconhecidos."
+          },
+          "remediation": "Auditar dependências diretas periodicamente. Usar ferramentas como socket.dev ou snyk para visibilidade de supply chain."
+        },
+        {
+          "check_id": "DS-006",
+          "name": "Build não reproduzível",
+          "severity_if_fail": "LOW",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Verificar se Dockerfile usa tags fixas vs latest: grep 'FROM.*:latest\\|FROM.*[^:]$' ${repo_path}/Dockerfile*",
+              "Verificar se CI instala com lockfile: grep -E 'npm ci|yarn --frozen|pip install -r.*lock|go mod download' ${ci_config_path}/*",
+              "Verificar se há pinning de versões em scripts de setup."
+            ],
+            "pass_criteria": "Docker images com tags fixas. CI usa lockfile. Dependências de sistema pinadas.",
+            "fail_criteria": "Docker FROM com :latest. CI usa npm install ao invés de npm ci. Versões flutuantes em setup."
+          },
+          "remediation": "Pinar todas as versões de base images. Usar npm ci / pip install --require-hashes. Documentar processo de build reproduzível."
+        }
+      ]
+    },
+
+    "authentication": {
+      "task_ref": "SEC-012",
+      "domain": "authentication",
+      "title": "Autenticação",
+      "priority": "critical",
+      "input_requirements": {
+        "required": ["repo_path"],
+        "optional": ["endpoint_base_url"]
+      },
+      "checks": [
+        {
+          "check_id": "AU-001",
+          "name": "Senhas armazenadas em texto plano",
+          "severity_if_fail": "CRITICAL",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Identificar models/schemas de usuário: grep -rn --include='*.{js,ts,py,go,java,php,rb}' -iE '(user|account|member).*model\\|schema.*user\\|class.*User' ${repo_path}",
+              "Verificar se campo password passa por hash antes de persist: grep -rn -A5 -B5 'password' nos arquivos de model/repository.",
+              "Buscar por uso de bcrypt, argon2, scrypt, pbkdf2: grep -rn -iE '(bcrypt|argon2|scrypt|pbkdf2|hashPassword|hash_password|make_password|password_hash)' ${repo_path}",
+              "Verificar se há save direto de password sem hash: grep -rn 'password.*save\\|insert.*password\\|create.*password' ${repo_path}"
+            ],
+            "pass_criteria": "Todas as senhas passam por hash com algoritmo seguro (bcrypt/argon2/scrypt) antes de armazenamento.",
+            "fail_criteria": "Qualquer path de código onde senha é armazenada sem hash. Uso de MD5/SHA1/SHA256 sem salt para senhas."
+          },
+          "remediation": "Implementar bcrypt (cost >= 12) ou argon2id para hash de senhas. Nunca usar MD5/SHA para passwords. Migrar senhas existentes em texto plano."
+        },
+        {
+          "check_id": "AU-002",
+          "name": "Hash de senha inseguro",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn --include='*.{js,ts,py,go,java,php,rb}' -iE '(md5|sha1|sha256|sha512).*password\\|password.*(md5|sha1|sha256|sha512)' ${repo_path}",
+              "Verificar se bcrypt/argon2 tem cost/rounds adequado: grep -rn -iE '(genSalt|gensalt|rounds|cost|bcrypt.*[0-9]+|argon2.*memory|time_cost)' ${repo_path}",
+              "Verificar se há salt: grep -rn -iE '(salt|genSalt|os\\.urandom|crypto\\.random)' próximo a operações de hash.",
+              "bcrypt: cost >= 12. argon2: memory >= 64MB, iterations >= 3."
+            ],
+            "pass_criteria": "Hash com bcrypt (cost >= 12) ou argon2id com parâmetros adequados. Salt único por senha.",
+            "fail_criteria": "Uso de MD5/SHA sem salt. bcrypt com cost < 10. Argon2 com parâmetros fracos."
+          },
+          "remediation": "Migrar para bcrypt cost=12+ ou argon2id. Se bcrypt, salt é automático. Implementar rehash transparente no login."
+        },
+        {
+          "check_id": "AU-003",
+          "name": "Ausência de MFA",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn --include='*.{js,ts,py,go,java,php,rb}' -iE '(totp|mfa|2fa|two.factor|multi.factor|authenticator|otp|speakeasy|pyotp|google.authenticator)' ${repo_path}",
+              "Verificar se há fluxo de MFA em rotas de login: buscar por steps de verificação pós-password.",
+              "Verificar se MFA é obrigatório para contas admin/privilegiadas."
+            ],
+            "pass_criteria": "MFA disponível para todos os usuários. Obrigatório para contas privilegiadas.",
+            "fail_criteria": "Nenhuma implementação de MFA encontrada. MFA ausente para contas admin."
+          },
+          "remediation": "Implementar TOTP com speakeasy/pyotp. Exigir MFA para admin. Oferecer MFA opt-in para todos. Fornecer recovery codes."
+        },
+        {
+          "check_id": "AU-004",
+          "name": "Reset de senha inseguro",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Buscar implementação de reset: grep -rn -iE '(reset.*password|password.*reset|forgot.*password|recover.*password)' ${repo_path}",
+              "Verificar se token de reset é criptograficamente seguro: grep -rn -A10 'reset' nos handlers.",
+              "Verificar se token tem expiração: buscar por TTL/expiry no fluxo de reset.",
+              "Verificar se token é single-use: buscar por invalidação após uso.",
+              "Verificar se reset envia senha em texto plano por email."
+            ],
+            "pass_criteria": "Token criptograficamente seguro, com expiração (< 1h), single-use, enviado por canal seguro. Senha nunca enviada em texto plano.",
+            "fail_criteria": "Token previsível ou sem expiração. Senha enviada em texto plano. Token reutilizável. Links de reset sem HTTPS."
+          },
+          "remediation": "Gerar token com crypto.randomBytes(32). Expirar em 30-60min. Invalidar após uso. Enviar apenas link, nunca senha."
+        },
+        {
+          "check_id": "AU-005",
+          "name": "Sessões sem expiração",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn --include='*.{js,ts,py,go,java,php,rb,yaml,yml,json}' -iE '(session.*expire|maxAge|max_age|ttl|expiresIn|expires_in|session.*timeout|cookie.*age|jwt.*exp)' ${repo_path}",
+              "Verificar configuração de JWT: grep -rn -iE '(expiresIn|exp.*:|ttl)' próximo a jwt.sign ou jwt.encode.",
+              "Verificar se há refresh token com rotação.",
+              "Verificar se há idle timeout além de absolute timeout."
+            ],
+            "pass_criteria": "Sessões com TTL absoluto (< 24h para sessões normais, < 15min idle para admin). JWT com expiração. Refresh token com rotação.",
+            "fail_criteria": "Sessões sem expiração configurada. JWT sem campo exp. Sem idle timeout."
+          },
+          "remediation": "Configurar TTL para sessões (8-24h normal, 15min idle admin). JWT com exp obrigatório. Implementar refresh token rotation."
+        },
+        {
+          "check_id": "AU-006",
+          "name": "Ausência de proteção contra brute force",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "hybrid",
+            "steps": [
+              "grep -rn --include='*.{js,ts,py,go,java,php,rb}' -iE '(rate.limit|rateLimit|throttle|brute.*force|login.*attempt|failed.*attempt|lockout|account.*lock)' ${repo_path}",
+              "Verificar se há middleware de rate limit em rota de login.",
+              "Se endpoint_base_url disponível: testar 10 requests rápidas ao endpoint de login e verificar se há bloqueio/delay.",
+              "Verificar se há lockout progressivo (delay crescente ou lock temporário)."
+            ],
+            "pass_criteria": "Rate limit em endpoint de login. Lockout após N tentativas falhas. Delay progressivo implementado.",
+            "fail_criteria": "Nenhuma proteção contra brute force em login. Rate limit ausente em endpoints de autenticação."
+          },
+          "remediation": "Implementar rate limit (ex: 5 tentativas/min por IP+username). Lockout progressivo após 5 falhas. CAPTCHA após 3 falhas. Notificar usuário de tentativas."
+        },
+        {
+          "check_id": "AU-007",
+          "name": "Tokens permanentes",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn --include='*.{js,ts,py,go,java,php,rb}' -iE '(jwt\\.sign|jwt\\.encode|createToken|generate.*token)' ${repo_path} | grep -viE '(expire|exp|ttl)'",
+              "Verificar se API keys têm expiração ou mecanismo de rotação.",
+              "Verificar se refresh tokens são rotacionados e têm TTL máximo.",
+              "Buscar por tokens 'never expire' ou sem campo de expiração em schema de banco."
+            ],
+            "pass_criteria": "Todos os tokens têm expiração definida. Refresh tokens rotacionados. API keys com mecanismo de revogação.",
+            "fail_criteria": "Tokens emitidos sem expiração. API keys permanentes sem rotação. Refresh tokens reutilizáveis indefinidamente."
+          },
+          "remediation": "Definir expiração em todos os tokens. Access token: 15-60min. Refresh token: 7-30 dias com rotação. API keys: revogáveis com auditoria."
+        },
+        {
+          "check_id": "AU-008",
+          "name": "Session fixation",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Verificar se session ID é regenerado após login: grep -rn -iE '(regenerate|destroy.*session|new.*session|session.*regenerate|req\\.session\\.regenerate|session\\.flush)' ${repo_path}",
+              "Verificar se o framework usado tem proteção nativa (ex: Express express-session, Django, Rails).",
+              "Verificar se aceita session ID via URL parameter: grep -rn 'session.*url\\|sid.*query\\|PHPSESSID.*GET' ${repo_path}"
+            ],
+            "pass_criteria": "Session ID regenerado após autenticação. Session ID nunca aceito via URL. Framework com proteção nativa ativada.",
+            "fail_criteria": "Session ID não regenerado após login. Session ID aceito via query parameter."
+          },
+          "remediation": "Regenerar session ID imediatamente após login bem-sucedido. Rejeitar session IDs via URL. Usar apenas cookies httpOnly para transporte."
+        }
+      ]
+    },
+
+    "authorization": {
+      "task_ref": "SEC-013",
+      "domain": "authorization",
+      "title": "Autorização",
+      "priority": "critical",
+      "input_requirements": {
+        "required": ["repo_path"],
+        "optional": ["endpoint_base_url"]
+      },
+      "checks": [
+        {
+          "check_id": "AZ-001",
+          "name": "Controle de acesso ausente",
+          "severity_if_fail": "CRITICAL",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Identificar todas as rotas/endpoints: grep -rn -iE '(router\\.|app\\.(get|post|put|patch|delete)|@(Get|Post|Put|Delete|Patch|RequestMapping)|@app\\.route|@api_view)' ${repo_path}",
+              "Para cada rota, verificar se há middleware de autenticação/autorização aplicado.",
+              "Identificar rotas sem proteção: rotas que não referenciam auth middleware, decorators de permissão, ou guards.",
+              "Verificar se há middleware global vs per-route e se rotas públicas são intencionalmente públicas."
+            ],
+            "pass_criteria": "Todas as rotas que acessam dados sensíveis têm controle de acesso. Rotas públicas são intencionais e documentadas.",
+            "fail_criteria": "Rotas que manipulam dados sensíveis sem qualquer middleware de auth/authz. Rotas admin acessíveis sem autenticação."
+          },
+          "remediation": "Aplicar middleware de auth por padrão (deny-by-default). Whitelist rotas públicas explicitamente. Documentar política de acesso por rota."
+        },
+        {
+          "check_id": "AZ-002",
+          "name": "IDOR (Insecure Direct Object Reference)",
+          "severity_if_fail": "CRITICAL",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Identificar endpoints que recebem IDs de recursos: grep -rn -iE '(params\\.(id|userId|orderId)|req\\.params|request\\.args|path.*<int:|/:id)' ${repo_path}",
+              "Para cada endpoint com ID: verificar se há verificação de ownership — o código checa se o recurso pertence ao usuário autenticado.",
+              "Buscar por queries sem filtro de owner: 'findById(id)' sem 'where user_id = current_user'.",
+              "Verificar se UUIDs são usados ao invés de IDs sequenciais (mitiga enumeração, não resolve IDOR)."
+            ],
+            "pass_criteria": "Todos os endpoints que recebem IDs verificam ownership ou permissão do usuário autenticado sobre o recurso.",
+            "fail_criteria": "Qualquer endpoint que retorna/modifica recurso baseado apenas no ID fornecido sem verificar ownership."
+          },
+          "remediation": "Sempre filtrar queries por user_id/org_id do usuário autenticado. Implementar policy layer (ex: CASL, Pundit, Django Guardian). Usar UUIDs ao invés de IDs sequenciais."
+        },
+        {
+          "check_id": "AZ-003",
+          "name": "Verificação de permissão apenas no frontend",
+          "severity_if_fail": "CRITICAL",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Buscar por lógica de permissão no frontend: grep -rn --include='*.{jsx,tsx,vue,svelte,js,ts}' -iE '(isAdmin|hasPermission|canAccess|role.*===|userRole|v-if.*admin|\\*ngIf.*admin)' em diretórios de frontend.",
+              "Verificar se as mesmas checagens existem no backend para as rotas correspondentes.",
+              "Buscar por conditional rendering que esconde funcionalidade sem proteção server-side: botões de admin, links de delete, etc.",
+              "Verificar se API endpoints correspondentes a funcionalidades admin têm guards no backend."
+            ],
+            "pass_criteria": "Toda verificação de permissão no frontend é replicada no backend. Frontend hide é UX, não security.",
+            "fail_criteria": "Funcionalidades restritas acessíveis via API direta mesmo que escondidas no frontend."
+          },
+          "remediation": "Implementar toda lógica de autorização no backend. Frontend deve esconder UI por UX, não por segurança. Testar endpoints diretamente com curl/Postman."
+        },
+        {
+          "check_id": "AZ-004",
+          "name": "Admin routes expostas",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "hybrid",
+            "steps": [
+              "grep -rn --include='*.{js,ts,py,go,java,php,rb}' -iE '(/admin|/dashboard|/internal|/management|/backoffice|/superuser)' ${repo_path}",
+              "Verificar se rotas admin têm middleware de autenticação + autorização específico (role check, não apenas auth).",
+              "Se endpoint_base_url disponível: curl -sI ${endpoint_base_url}/admin e ${endpoint_base_url}/admin/ sem autenticação.",
+              "Verificar se admin panel está em path previsível ou em subdomain/port separado."
+            ],
+            "pass_criteria": "Rotas admin protegidas por auth + role check. Admin em path não-óbvio ou rede segregada.",
+            "fail_criteria": "Admin routes acessíveis sem autenticação. Admin em /admin sem proteção adicional."
+          },
+          "remediation": "Proteger admin com auth + role admin. Mover para subdomain ou porta segregada. Implementar IP whitelist se possível. Adicionar MFA para admin."
+        },
+        {
+          "check_id": "AZ-005",
+          "name": "Escopo de permissões mal definido",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Buscar definição de roles/permissões: grep -rn -iE '(enum.*Role|PERMISSIONS|ROLES|scopes|abilities|policies)' ${repo_path}",
+              "Verificar granularidade: são apenas 'admin/user' ou há escopo granular (read:users, write:orders, etc.)?",
+              "Verificar se há role creep: roles com permissões que não deveriam ter.",
+              "Verificar se princípio do menor privilégio está aplicado."
+            ],
+            "pass_criteria": "Permissões granulares definidas. Roles mapeados a permissões específicas. Menor privilégio aplicado.",
+            "fail_criteria": "Apenas 2 roles (admin/user). Admin tem acesso a tudo sem granularidade. Sem definição formal de permissões."
+          },
+          "remediation": "Implementar RBAC ou ABAC granular. Definir permissões por recurso e ação. Auditar roles periodicamente. Documentar matriz de permissões."
+        },
+        {
+          "check_id": "AZ-006",
+          "name": "Ações sensíveis sem confirmação",
+          "severity_if_fail": "LOW",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Identificar ações destrutivas: grep -rn -iE '(delete|destroy|remove|purge|drop|truncate|revoke|ban|disable)' nos handlers/controllers.",
+              "Verificar se há step de confirmação (re-auth, confirmation token, 2-step) para ações críticas.",
+              "Verificar se ações em massa (bulk delete, bulk update) têm proteção adicional."
+            ],
+            "pass_criteria": "Ações destrutivas requerem confirmação. Ações irreversíveis requerem re-autenticação. Bulk operations protegidas.",
+            "fail_criteria": "DELETE de recursos sem confirmação. Ações irreversíveis em single request sem proteção."
+          },
+          "remediation": "Exigir confirmação para ações destrutivas. Re-autenticação para ações críticas (delete account, change email). Soft-delete com período de recuperação."
+        }
+      ]
+    },
+
+    "api_security": {
+      "task_ref": "SEC-014",
+      "domain": "api_security",
+      "title": "Segurança de API",
+      "priority": "high",
+      "input_requirements": {
+        "required": ["repo_path"],
+        "optional": ["endpoint_base_url"]
+      },
+      "checks": [
+        {
+          "check_id": "AP-001",
+          "name": "Endpoints sem rate limit",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "hybrid",
+            "steps": [
+              "grep -rn --include='*.{js,ts,py,go,java,php,rb}' -iE '(rateLimit|rate_limit|throttle|express-rate-limit|django-ratelimit|go-rate|limiter)' ${repo_path}",
+              "Verificar se rate limit é global ou per-endpoint.",
+              "Verificar se rate limit está configurado no API gateway/reverse proxy (nginx, kong, traefik).",
+              "Se endpoint_base_url: enviar 20 requests em sequência e verificar se há 429 Too Many Requests."
+            ],
+            "pass_criteria": "Rate limit configurado em endpoints públicos. Endpoints sensíveis (login, register, reset) com limits mais restritivos.",
+            "fail_criteria": "Nenhum rate limit encontrado. Endpoints de auth sem proteção contra abuso."
+          },
+          "remediation": "Implementar rate limiting por IP e por user. Endpoints de auth: 5-10 req/min. APIs gerais: 100-1000 req/min conforme caso de uso. Retornar 429 com Retry-After header."
+        },
+        {
+          "check_id": "AP-002",
+          "name": "Endpoints retornando dados excessivos",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Buscar responses que retornam objetos inteiros: grep -rn -iE '(findAll|find_all|select \\*|res\\.json\\(user|return.*toJSON|serialize)' ${repo_path}",
+              "Verificar se há DTOs/serializers que filtram campos: grep -rn -iE '(DTO|Serializer|toResponse|select\\(|pick\\(|omit\\()' ${repo_path}",
+              "Verificar se campos sensíveis (password_hash, internal_id, tokens, email, CPF) são excluídos das respostas.",
+              "Verificar se há diferença de serialização por role (admin vê mais campos que user)."
+            ],
+            "pass_criteria": "Respostas filtradas com DTOs/serializers. Campos sensíveis excluídos. Sem over-fetching.",
+            "fail_criteria": "Endpoints retornando objetos completos incluindo campos sensíveis. SELECT * sem filtragem na response."
+          },
+          "remediation": "Implementar DTOs/serializers para cada endpoint. Excluir campos sensíveis por padrão. Usar sparse fieldsets se API suporta (JSON:API, GraphQL)."
+        },
+        {
+          "check_id": "AP-003",
+          "name": "Enumeração de usuários",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "hybrid",
+            "steps": [
+              "Verificar endpoint de login: resposta diferente para 'usuário não existe' vs 'senha incorreta'?",
+              "Verificar endpoint de registro: resposta diferente para 'email já cadastrado'?",
+              "Verificar endpoint de reset de senha: resposta diferente para email existente vs inexistente?",
+              "Se endpoint_base_url: testar com email existente vs inexistente e comparar responses (status code, body, timing)."
+            ],
+            "pass_criteria": "Mensagens genéricas em login/register/reset que não revelam existência de conta. Timing constante.",
+            "fail_criteria": "Respostas diferentes que permitem determinar se email/username existe no sistema."
+          },
+          "remediation": "Retornar mesma mensagem independente de existência: 'Se a conta existir, enviaremos um email'. Usar timing constante. Considerar CAPTCHA após N tentativas."
+        },
+        {
+          "check_id": "AP-004",
+          "name": "Falta de validação de schema",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn --include='*.{js,ts,py,go,java,php,rb}' -iE '(joi|yup|zod|ajv|jsonschema|pydantic|marshmallow|cerberus|validator|class-validator|express-validator)' ${repo_path}",
+              "Verificar se endpoints POST/PUT/PATCH validam body antes de processar.",
+              "Buscar por acesso direto a req.body sem validação: grep -rn 'req\\.body\\.' que não é precedido por validação.",
+              "Verificar se há validação de tipos, ranges, formatos (email, CPF, UUID)."
+            ],
+            "pass_criteria": "Todos os endpoints que recebem input têm validação de schema. Tipos, ranges e formatos validados.",
+            "fail_criteria": "Endpoints processando req.body/request.data sem validação. Ausência de library de validação."
+          },
+          "remediation": "Implementar validação com zod/joi/pydantic em todos os endpoints. Validar tipos, ranges, formatos. Rejeitar campos desconhecidos (strict mode)."
+        },
+        {
+          "check_id": "AP-005",
+          "name": "Falta de versionamento de API",
+          "severity_if_fail": "LOW",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn -iE '(/api/v[0-9]|/v[0-9]/|api.*version|Accept.*version)' ${repo_path}",
+              "Verificar se há estratégia de versionamento documentada (URL path, header, query param).",
+              "Verificar se há mais de uma versão e se versões antigas são deprecadas."
+            ],
+            "pass_criteria": "API versionada com estratégia definida. Versões antigas com plano de deprecation.",
+            "fail_criteria": "Nenhum versionamento de API. Breaking changes sem proteção de clientes existentes."
+          },
+          "remediation": "Implementar versionamento por URL path (/api/v1/) ou header (Accept-Version). Documentar política de deprecation."
+        },
+        {
+          "check_id": "AP-006",
+          "name": "Ausência de paginação",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Identificar endpoints de listagem: grep -rn -iE '(findAll|find_all|list|getAll|get_all|index)' nos controllers/handlers.",
+              "Verificar se há limit/offset ou cursor-based pagination: grep -rn -iE '(limit|offset|page|cursor|per_page|pageSize|skip|take)' ${repo_path}",
+              "Verificar se há max limit para evitar que client solicite todos os registros.",
+              "Se endpoint_base_url: testar endpoint de listagem sem parâmetros de paginação."
+            ],
+            "pass_criteria": "Endpoints de listagem paginados. Max limit definido (ex: max 100 por página). Default limit aplicado.",
+            "fail_criteria": "Endpoints retornando todos os registros sem paginação. Sem max limit configurado."
+          },
+          "remediation": "Implementar paginação em todos os endpoints de listagem. Default: 20-50 items. Max: 100. Retornar metadata de paginação (total, next, prev)."
+        },
+        {
+          "check_id": "AP-007",
+          "name": "Replay attacks possíveis",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Verificar se requisições sensíveis (pagamento, transferência, ações irreversíveis) têm proteção de idempotência: grep -rn -iE '(idempotency|idempotent|nonce|request_id|X-Request-Id)' ${repo_path}",
+              "Verificar se há timestamp validation em requests: grep -rn -iE '(timestamp.*valid|request.*age|replay.*protect)' ${repo_path}",
+              "Verificar se tokens de ação única são usados para operações sensíveis."
+            ],
+            "pass_criteria": "Operações sensíveis protegidas com idempotency keys ou nonces. Timestamps validados onde aplicável.",
+            "fail_criteria": "Operações financeiras ou destrutivas re-executáveis ao reenviar mesma request."
+          },
+          "remediation": "Implementar idempotency keys para operações sensíveis. Validar timestamp de requests (janela de 5min). Nonces para operações financeiras."
+        }
+      ]
+    },
+
+    "input_validation": {
+      "task_ref": "SEC-015",
+      "domain": "input_validation",
+      "title": "Validação de Entrada",
+      "priority": "critical",
+      "input_requirements": {
+        "required": ["repo_path"],
+        "optional": ["endpoint_base_url"]
+      },
+      "checks": [
+        {
+          "check_id": "IV-001",
+          "name": "SQL injection",
+          "severity_if_fail": "CRITICAL",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Buscar concatenação de strings em queries SQL: grep -rn --include='*.{js,ts,py,go,java,php,rb}' -E '(query|execute|raw|sql).*[\\+\\$`].*(' ${repo_path}",
+              "Buscar por string interpolation em SQL: grep -rn -E '(f\".*SELECT|f\".*INSERT|f\".*UPDATE|f\".*DELETE|`.*\\$\\{.*\\}.*SELECT|\\\".*\\+.*SELECT)' ${repo_path}",
+              "Verificar se ORM é usado consistentemente: grep -rn -iE '(sequelize|typeorm|prisma|sqlalchemy|django\\.db|gorm|eloquent|activerecord)' ${repo_path}",
+              "Buscar por raw queries no ORM: grep -rn -iE '(\\.raw\\(|rawQuery|execute_sql|db\\.execute|connection\\.execute)' ${repo_path}",
+              "Verificar se raw queries usam parametrização: $1, ?, :param, %s com bind.",
+              "Verificar stored procedures e se parâmetros são sanitizados."
+            ],
+            "pass_criteria": "ORM usado consistentemente. Raw queries usam parametrização. Zero concatenação de input em SQL.",
+            "fail_criteria": "Qualquer concatenação de user input em string SQL. Raw queries sem parametrização."
+          },
+          "remediation": "Usar ORM ou prepared statements. Nunca concatenar input em SQL. Raw queries com parameterized placeholders. Implementar WAF como defesa em profundidade."
+        },
+        {
+          "check_id": "IV-002",
+          "name": "Command injection",
+          "severity_if_fail": "CRITICAL",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn --include='*.{js,ts,py,go,java,php,rb}' -iE '(exec|spawn|system|popen|subprocess|child_process|os\\.system|Runtime\\.exec|shell_exec|passthru|proc_open)' ${repo_path}",
+              "Para cada uso: verificar se user input é passado como argumento.",
+              "Verificar se há sanitização/escaping de input antes de uso em comandos.",
+              "Verificar se há alternativas sem shell (ex: execFile ao invés de exec em Node.js)."
+            ],
+            "pass_criteria": "Nenhum user input passado a system commands. Se necessário, usa lista de comandos permitidos + escaping. Prefer execFile over exec.",
+            "fail_criteria": "User input concatenado em system commands. Uso de shell=True com input não sanitizado."
+          },
+          "remediation": "Evitar system commands com user input. Se necessário: whitelist de comandos + execFile (sem shell). Escapar com shlex.quote() em Python. Nunca shell=True com input externo."
+        },
+        {
+          "check_id": "IV-003",
+          "name": "Template injection",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Identificar template engine: grep -rn -iE '(jinja2|nunjucks|handlebars|ejs|pug|twig|freemarker|thymeleaf|mako|django.*template)' ${repo_path}",
+              "Verificar se user input é inserido diretamente em templates: grep -rn -E '(render_template_string|Template\\(.*request|nunjucks\\.renderString.*req)' ${repo_path}",
+              "Verificar se autoescaping está habilitado na engine.",
+              "Buscar por uso de safe/raw/autoescape off com dados do usuário."
+            ],
+            "pass_criteria": "Autoescaping habilitado. User input nunca usado como template source. Uso de |safe apenas com dados confiáveis.",
+            "fail_criteria": "User input usado como template string. Autoescaping desabilitado. render_template_string com input externo."
+          },
+          "remediation": "Nunca usar input como template source. Habilitar autoescaping. Usar |safe apenas com dados do sistema, nunca de usuário. Sandboxed templates quando possível."
+        },
+        {
+          "check_id": "IV-004",
+          "name": "SSRF",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Buscar por requests com URLs fornecidas pelo usuário: grep -rn --include='*.{js,ts,py,go,java,php,rb}' -iE '(fetch|axios|requests\\.get|http\\.get|urllib|HttpClient|curl_exec)' ${repo_path}",
+              "Verificar se URLs são validadas: whitelist de domínios, bloqueio de IPs internos (127.0.0.1, 10.x, 172.16-31.x, 169.254.x, ::1).",
+              "Buscar por funcionalidades de webhook, preview, import, redirect que aceitam URLs externas.",
+              "Verificar se há resolução de DNS seguida por validação de IP (DNS rebinding protection)."
+            ],
+            "pass_criteria": "URLs de user input validadas com whitelist. IPs internos bloqueados. DNS rebinding mitigado.",
+            "fail_criteria": "Requests feitos com URL fornecida pelo usuário sem validação. Acesso a rede interna possível via SSRF."
+          },
+          "remediation": "Validar e normalizar URLs. Bloquear IPs privados e link-local. Usar whitelist de domínios quando possível. Resolver DNS e validar IP resultante. Timeout curto em requests."
+        },
+        {
+          "check_id": "IV-005",
+          "name": "Cross-site scripting (XSS)",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "hybrid",
+            "steps": [
+              "Verificar se framework tem auto-escaping (React JSX, Angular, Vue templates): se sim, buscar por bypasses.",
+              "Buscar por bypass de auto-escaping: grep -rn -iE '(dangerouslySetInnerHTML|v-html|\\[innerHTML\\]|\\|safe|\\|raw|autoescape off|{{{|<%-)' ${repo_path}",
+              "Buscar por DOM manipulation com user input: grep -rn -iE '(innerHTML|outerHTML|document\\.write|insertAdjacentHTML|eval\\()' ${repo_path}",
+              "Verificar se há sanitização com library (DOMPurify, sanitize-html, bleach): grep -rn -iE '(DOMPurify|sanitize-html|bleach|clean_html)' ${repo_path}",
+              "Se endpoint_base_url: testar input <script>alert(1)</script> em campos de texto."
+            ],
+            "pass_criteria": "Framework com auto-escaping. Bypasses (dangerouslySetInnerHTML etc.) usados apenas com dados sanitizados. CSP header configurado.",
+            "fail_criteria": "User input inserido via innerHTML/v-html sem sanitização. eval() com input externo. Sem CSP header."
+          },
+          "remediation": "Usar auto-escaping do framework. Sanitizar com DOMPurify antes de innerHTML. Nunca eval() com user input. Implementar CSP restritivo. Encode output por contexto."
+        },
+        {
+          "check_id": "IV-006",
+          "name": "Inputs não validados",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Identificar todos os endpoints que recebem input (POST/PUT/PATCH body, query params, headers customizados).",
+              "Verificar se há validação de tipo (string, number, boolean, array), length, range, format.",
+              "Buscar por acesso direto a input sem validação: req.body.X, request.form['X'], r.FormValue('X') sem check prévio.",
+              "Verificar se há validação de content-type nas requests."
+            ],
+            "pass_criteria": "Todos os inputs validados com tipo, formato e limites definidos antes de processamento.",
+            "fail_criteria": "Inputs processados sem validação. Campos sem limites de tamanho. Tipos não verificados."
+          },
+          "remediation": "Validar todos os inputs no ponto de entrada. Definir schemas com tipos, limites e formatos. Rejeitar input malformado com 400."
+        },
+        {
+          "check_id": "IV-007",
+          "name": "Sanitização ausente",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Verificar se dados do usuário são sanitizados antes de armazenamento e exibição.",
+              "grep -rn -iE '(sanitize|escape|encode|strip_tags|htmlspecialchars|bleach|DOMPurify|validator\\.escape)' ${repo_path}",
+              "Verificar se há sanitização contextual: HTML context, URL context, SQL context, shell context.",
+              "Verificar se dados são sanitizados na entrada (write) E na saída (read/render)."
+            ],
+            "pass_criteria": "Sanitização aplicada por contexto. Input sanitizado antes de armazenamento. Output encoded antes de renderização.",
+            "fail_criteria": "Nenhuma sanitização encontrada. Dados de usuário armazenados e exibidos raw."
+          },
+          "remediation": "Implementar sanitização por contexto: HTML encode para render, parameterize para SQL, shellescape para commands. Sanitizar na entrada E na saída."
+        }
+      ]
+    },
+
+    "file_upload": {
+      "task_ref": "SEC-016",
+      "domain": "file_upload",
+      "title": "Upload de Arquivos",
+      "priority": "high",
+      "input_requirements": {
+        "required": ["repo_path"],
+        "optional": ["endpoint_base_url"]
+      },
+      "checks": [
+        {
+          "check_id": "FU-001",
+          "name": "Uploads sem validação de tipo",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Identificar endpoints de upload: grep -rn -iE '(multer|formidable|busboy|upload|multipart|FileUpload|request\\.files|UploadedFile)' ${repo_path}",
+              "Verificar se há whitelist de MIME types ou extensões.",
+              "Verificar se validação checa magic bytes (file signature) e não apenas extensão: grep -rn -iE '(file-type|magic|mime.*detect|libmagic)' ${repo_path}",
+              "Verificar se extensão e MIME são validados juntos (não apenas um)."
+            ],
+            "pass_criteria": "Whitelist de tipos permitidos. Validação por magic bytes + extensão. MIME type verificado server-side.",
+            "fail_criteria": "Nenhuma validação de tipo. Validação apenas por extensão (bypassável). Blacklist ao invés de whitelist."
+          },
+          "remediation": "Whitelist de extensões e MIME types permitidos. Validar magic bytes com library (file-type, python-magic). Rejeitar tudo que não está na whitelist."
+        },
+        {
+          "check_id": "FU-002",
+          "name": "Uploads sem limite de tamanho",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn -iE '(maxFileSize|max_file_size|fileSizeLimit|upload.*limit|limits.*fileSize|MAX_CONTENT_LENGTH|client_max_body_size)' ${repo_path}",
+              "Verificar configuração de web server: nginx client_max_body_size, apache LimitRequestBody.",
+              "Verificar se limite é aplicado no backend e não apenas no frontend (HTML maxlength não é segurança)."
+            ],
+            "pass_criteria": "Limite de tamanho configurado no backend e/ou web server. Limite adequado ao caso de uso.",
+            "fail_criteria": "Nenhum limite de tamanho. Limite apenas no frontend. Limite excessivamente alto."
+          },
+          "remediation": "Configurar limite no web server (nginx: client_max_body_size 10M) e na aplicação. Limitar por tipo de arquivo. Rejeitar com 413 Payload Too Large."
+        },
+        {
+          "check_id": "FU-003",
+          "name": "Uploads armazenados no servidor da aplicação",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Verificar destino de uploads: grep -rn -iE '(upload.*path|UPLOAD_DIR|storage.*local|diskStorage|save.*path|writeFile.*upload)' ${repo_path}",
+              "Verificar se arquivos são servidos diretamente pelo app server: express.static, flask send_from_directory apontando para upload dir.",
+              "Verificar se há uso de object storage: grep -rn -iE '(S3|azure.*blob|gcs.*bucket|minio|cloudinary)' ${repo_path}"
+            ],
+            "pass_criteria": "Uploads armazenados em object storage externo (S3, Azure Blob, GCS). Servidos via CDN ou signed URLs.",
+            "fail_criteria": "Uploads no filesystem do app server. Servidos diretamente pelo app, permitindo path traversal."
+          },
+          "remediation": "Mover para object storage (S3, Azure Blob). Servir via CDN ou signed URLs com expiração. Se local necessário, fora do webroot com randomized filenames."
+        },
+        {
+          "check_id": "FU-004",
+          "name": "Ausência de antivírus",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn -iE '(clamav|clamscan|antivirus|virus.*scan|malware.*scan|virusTotal)' ${repo_path}",
+              "Verificar se scan é síncrono (antes de persistir) ou assíncrono (após upload).",
+              "Verificar se arquivos infectados são rejeitados e deletados."
+            ],
+            "pass_criteria": "Scan antivírus integrado no pipeline de upload. Arquivos escaneados antes de serem acessíveis. Infectados rejeitados.",
+            "fail_criteria": "Nenhum scan antivírus. Arquivos acessíveis antes de scan completar."
+          },
+          "remediation": "Integrar ClamAV ou serviço equivalente. Escanear antes de persistir. Quarentenar até scan completar. Rejeitar e alertar em caso de detecção."
+        },
+        {
+          "check_id": "FU-005",
+          "name": "Possibilidade de upload executável",
+          "severity_if_fail": "CRITICAL",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Verificar se extensões executáveis são bloqueadas: .php, .jsp, .py, .sh, .exe, .bat, .cmd, .ps1, .cgi, .pl",
+              "Verificar se web server não interpreta uploads: nginx location para uploads não ter php/proxy, apache sem ExecCGI.",
+              "Verificar se content-type de download é forçado para application/octet-stream ou correto e não para text/html.",
+              "Verificar se há Content-Disposition: attachment em downloads de arquivos uploaded."
+            ],
+            "pass_criteria": "Extensões executáveis bloqueadas. Web server não interpreta uploads. Downloads forçam Content-Disposition: attachment.",
+            "fail_criteria": "Upload de .php/.jsp/.py aceito. Web server interpreta uploads como código. Sem Content-Disposition em downloads."
+          },
+          "remediation": "Whitelist rigorosa de extensões. Servir uploads de domínio separado. Content-Type correto + Content-Disposition: attachment. Randomizar filenames."
+        },
+        {
+          "check_id": "FU-006",
+          "name": "Filenames não sanitizados",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Verificar se filename original é usado diretamente: grep -rn -iE '(originalname|original_filename|filename.*req|req.*filename)' ${repo_path}",
+              "Verificar se há sanitização: remoção de ../, caracteres especiais, null bytes.",
+              "Verificar se filename é substituído por UUID/hash: grep -rn -iE '(uuid|randomUUID|nanoid|crypto.*random.*filename)' ${repo_path}"
+            ],
+            "pass_criteria": "Filenames substituídos por UUID/hash no armazenamento. Nome original salvo apenas em metadados sanitizados.",
+            "fail_criteria": "Filename original usado diretamente no filesystem. Sem sanitização de path traversal (../)."
+          },
+          "remediation": "Substituir filename por UUID + extensão validada. Armazenar nome original apenas em DB (sanitizado). Nunca usar filename original em path do filesystem."
+        }
+      ]
+    },
+
+    "session_security": {
+      "task_ref": "SEC-017",
+      "domain": "session_security",
+      "title": "Segurança de Sessão",
+      "priority": "high",
+      "input_requirements": {
+        "required": ["repo_path"],
+        "optional": ["endpoint_base_url"]
+      },
+      "checks": [
+        {
+          "check_id": "SS-001",
+          "name": "Cookies sem httpOnly",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "hybrid",
+            "steps": [
+              "grep -rn --include='*.{js,ts,py,go,java,php,rb}' -iE '(httpOnly|http_only|httponly)' ${repo_path}",
+              "Verificar se session cookies e auth cookies têm httpOnly: true.",
+              "Se endpoint_base_url: curl -sI ${endpoint_base_url}/ | grep -i set-cookie | grep -iv httponly"
+            ],
+            "pass_criteria": "Todos os cookies sensíveis (session, auth) com httpOnly flag.",
+            "fail_criteria": "Cookies de sessão ou auth sem httpOnly. Acessíveis via JavaScript."
+          },
+          "remediation": "Configurar httpOnly: true em todos os cookies de sessão e autenticação."
+        },
+        {
+          "check_id": "SS-002",
+          "name": "Cookies sem Secure flag",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "hybrid",
+            "steps": [
+              "grep -rn --include='*.{js,ts,py,go,java,php,rb,yaml,yml}' -iE '(secure.*cookie|cookie.*secure|SESSION_COOKIE_SECURE)' ${repo_path}",
+              "Se endpoint_base_url com HTTPS: verificar Set-Cookie headers para flag Secure."
+            ],
+            "pass_criteria": "Cookies sensíveis com Secure flag. Transmitidos apenas via HTTPS.",
+            "fail_criteria": "Cookies de sessão sem Secure flag. Possível transmissão via HTTP."
+          },
+          "remediation": "Configurar Secure: true em todos os cookies sensíveis. Garantir HTTPS em produção."
+        },
+        {
+          "check_id": "SS-003",
+          "name": "SameSite ausente",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "hybrid",
+            "steps": [
+              "grep -rn -iE '(sameSite|same_site|samesite)' ${repo_path}",
+              "Verificar valor: Strict, Lax ou None. None requer Secure.",
+              "Se endpoint_base_url: verificar Set-Cookie headers."
+            ],
+            "pass_criteria": "SameSite=Strict ou Lax em cookies de sessão. Se None, combinado com Secure.",
+            "fail_criteria": "SameSite ausente em cookies de sessão. SameSite=None sem Secure."
+          },
+          "remediation": "Configurar SameSite=Strict (ideal) ou Lax (se cross-site necessário). Nunca None sem Secure."
+        },
+        {
+          "check_id": "SS-004",
+          "name": "Ausência de CSRF token",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn --include='*.{js,ts,py,go,java,php,rb}' -iE '(csrf|xsrf|cross.*site.*request|csurf|csrf_token|CSRFProtect|AntiForgery)' ${repo_path}",
+              "Verificar se formulários stateful (POST) incluem token CSRF.",
+              "Verificar se SameSite=Strict substitui CSRF token (aceitável em browsers modernos).",
+              "Se API stateless com JWT: CSRF token pode não ser necessário (JWT não é enviado automaticamente como cookie)."
+            ],
+            "pass_criteria": "CSRF tokens em formulários stateful. OU SameSite=Strict em cookies de sessão. OU API stateless com auth header (não cookie).",
+            "fail_criteria": "Formulários com cookies de sessão sem CSRF token e sem SameSite protection."
+          },
+          "remediation": "Implementar CSRF tokens (csurf, django csrf, Spring CSRF). Ou migrar para SameSite=Strict. APIs com Bearer token em header são naturalmente protegidas."
+        },
+        {
+          "check_id": "SS-005",
+          "name": "Sessões sem expiração",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Referência cruzada com AU-005. Verificar configuração de sessão especificamente.",
+              "grep -rn -iE '(session.*maxAge|session.*ttl|session.*expire|SESSION_LIFETIME|SESSION_COOKIE_AGE)' ${repo_path}",
+              "Verificar se store de sessão limpa sessões expiradas."
+            ],
+            "pass_criteria": "Sessões com TTL definido. Store limpa sessões expiradas. Idle timeout implementado.",
+            "fail_criteria": "Sessões sem expiração. Store acumula sessões indefinidamente."
+          },
+          "remediation": "Configurar TTL máximo de sessão. Implementar idle timeout. Configurar cleanup de sessões expiradas no store."
+        },
+        {
+          "check_id": "SS-006",
+          "name": "Tokens reutilizáveis",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Verificar se tokens de ação única (reset, confirm, invite) são invalidados após uso.",
+              "Buscar por lógica de invalidação: grep -rn -iE '(invalidate.*token|delete.*token|used.*true|token.*null|revoke)' ${repo_path}",
+              "Verificar se refresh tokens são rotacionados (novo refresh token emitido a cada uso)."
+            ],
+            "pass_criteria": "Tokens de ação única invalidados após uso. Refresh tokens rotacionados.",
+            "fail_criteria": "Tokens reutilizáveis. Refresh tokens sem rotação."
+          },
+          "remediation": "Invalidar tokens de uso único imediatamente após consumo. Implementar refresh token rotation. Detectar reuso de refresh token como sinal de comprometimento."
+        }
+      ]
+    },
+
+    "cryptography": {
+      "task_ref": "SEC-018",
+      "domain": "cryptography",
+      "title": "Criptografia",
+      "priority": "high",
+      "input_requirements": {
+        "required": ["repo_path"],
+        "optional": ["endpoint_base_url", "infra_config_path"]
+      },
+      "checks": [
+        {
+          "check_id": "CR-001",
+          "name": "HTTPS não obrigatório",
+          "severity_if_fail": "CRITICAL",
+          "agent_instructions": {
+            "strategy": "hybrid",
+            "steps": [
+              "Verificar configuração de redirect HTTP→HTTPS em web server/load balancer.",
+              "grep -rn -iE '(HSTS|Strict-Transport-Security|force.*ssl|require.*ssl|redirect.*https)' ${repo_path} ${infra_config_path}",
+              "Se endpoint_base_url: curl -sI http://domain (sem S) e verificar redirect 301 para HTTPS."
+            ],
+            "pass_criteria": "HTTP redireciona para HTTPS. HSTS header presente. HTTPS obrigatório em todos os endpoints.",
+            "fail_criteria": "Aplicação acessível via HTTP sem redirect. Sem HSTS. Mixed content."
+          },
+          "remediation": "Configurar redirect 301 HTTP→HTTPS. Adicionar HSTS header (max-age=31536000; includeSubDomains; preload). Considerar HSTS preload list."
+        },
+        {
+          "check_id": "CR-002",
+          "name": "Algoritmos criptográficos inseguros",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn --include='*.{js,ts,py,go,java,php,rb}' -iE '(MD5|SHA1|DES|RC4|ECB|Blowfish)' ${repo_path} | grep -viE '(content-md5|etag|checksum|integrity|fingerprint)'",
+              "Verificar uso contextual: MD5 para checksum de arquivo é aceitável, MD5 para password hash não é.",
+              "Verificar TLS config: grep -rn -iE '(TLSv1\\.0|TLSv1\\.1|SSLv3|ssl\\.PROTOCOL_TLS)' ${repo_path}",
+              "Verificar se há random inseguro: grep -rn -iE '(Math\\.random|random\\.random|rand\\(\\))' usado para tokens/secrets."
+            ],
+            "pass_criteria": "Algoritmos modernos: AES-256-GCM, RSA-2048+, SHA-256+, TLS 1.2+. Random criptográfico para tokens.",
+            "fail_criteria": "MD5/SHA1 para segurança. DES/RC4/ECB em uso. TLS < 1.2. Math.random para tokens."
+          },
+          "remediation": "Migrar para AES-256-GCM, SHA-256+. TLS 1.2 mínimo (preferencialmente 1.3). crypto.randomBytes/secrets.token para valores aleatórios seguros."
+        },
+        {
+          "check_id": "CR-003",
+          "name": "Dados sensíveis sem criptografia",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Identificar dados sensíveis armazenados: grep -rn -iE '(cpf|cnpj|credit.*card|ssn|pii|personal.*data|health.*data|medical)' em schemas/models.",
+              "Verificar se há criptografia at-rest: grep -rn -iE '(encrypt|cipher|aes|KMS|envelope.*encrypt|column.*encrypt)' ${repo_path}",
+              "Verificar se banco usa encryption at-rest (config de DB, RDS encryption, etc.).",
+              "Verificar se backups são criptografados."
+            ],
+            "pass_criteria": "Dados PII/sensíveis criptografados at-rest. DB com encryption habilitado. Backups criptografados.",
+            "fail_criteria": "CPF/dados de saúde/cartão armazenados em texto plano. DB sem encryption. Backups não criptografados."
+          },
+          "remediation": "Criptografar campos sensíveis a nível de aplicação (envelope encryption). Habilitar encryption at-rest no DB. Criptografar backups."
+        },
+        {
+          "check_id": "CR-004",
+          "name": "Chaves criptográficas expostas",
+          "severity_if_fail": "CRITICAL",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Referência cruzada com SC-001 focado em chaves criptográficas.",
+              "grep -rn -iE '(PRIVATE KEY|encryption.*key|AES.*key|JWT_SECRET|SIGNING_KEY)' ${repo_path}",
+              "Verificar se chaves são carregadas de KMS/Vault ou de env vars.",
+              "Verificar permissões de arquivos de chave: find ${repo_path} -name '*.pem' -o -name '*.key' | xargs ls -la"
+            ],
+            "pass_criteria": "Chaves em secrets manager ou env vars. Arquivos de chave com permissão restrita (600). Nunca commitadas.",
+            "fail_criteria": "Chaves no código-fonte. Arquivos de chave com permissão world-readable. Chaves em configs commitadas."
+          },
+          "remediation": "Armazenar chaves em KMS/Vault. Se em arquivo, permissão 600 e fora do repo. Rotacionar chaves comprometidas imediatamente."
+        },
+        {
+          "check_id": "CR-005",
+          "name": "Falta de rotação de chaves",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Buscar por mecanismo de key rotation: grep -rn -iE '(key.*rotation|rotate.*key|key.*version|KMS.*rotate)' ${repo_path}",
+              "Verificar se JWT signing key pode ser rotacionada sem invalidar todos os tokens (kid header, JWKS).",
+              "Verificar se há documentação de política de rotação de chaves."
+            ],
+            "pass_criteria": "Política de rotação documentada. Mecanismo de rotação implementado (JWKS, key versioning). KMS auto-rotation se disponível.",
+            "fail_criteria": "Sem mecanismo ou política de rotação. Mesma chave desde inception. Rotação requer downtime."
+          },
+          "remediation": "Implementar key versioning. Usar JWKS para JWT com kid header. Configurar auto-rotation em KMS. Documentar policy de rotação."
+        }
+      ]
+    },
+
+    "security_headers": {
+      "task_ref": "SEC-019",
+      "domain": "security_headers",
+      "title": "Headers de Segurança",
+      "priority": "medium",
+      "input_requirements": {
+        "required": ["repo_path"],
+        "optional": ["endpoint_base_url"]
+      },
+      "checks": [
+        {
+          "check_id": "SH-001",
+          "name": "Content-Security-Policy ausente",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "hybrid",
+            "steps": [
+              "grep -rn -iE '(content.security.policy|CSP|helmet)' ${repo_path}",
+              "Se endpoint_base_url: curl -sI ${endpoint_base_url}/ | grep -i content-security-policy",
+              "Verificar se CSP é restritivo: não tem unsafe-inline/unsafe-eval sem necessidade."
+            ],
+            "pass_criteria": "CSP header presente e restritivo. Sem unsafe-inline/unsafe-eval desnecessários.",
+            "fail_criteria": "CSP ausente. CSP com 'unsafe-inline' 'unsafe-eval' sem justificativa."
+          },
+          "remediation": "Implementar CSP restritivo. Usar nonce ou hash para inline scripts. Reportar violations com report-uri."
+        },
+        {
+          "check_id": "SH-002",
+          "name": "Strict-Transport-Security ausente",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "hybrid",
+            "steps": [
+              "grep -rn -iE '(strict.transport|hsts)' ${repo_path}",
+              "Se endpoint_base_url: curl -sI https://${domain}/ | grep -i strict-transport",
+              "Verificar max-age >= 31536000 (1 ano) e includeSubDomains."
+            ],
+            "pass_criteria": "HSTS com max-age >= 31536000, includeSubDomains. Preload se possível.",
+            "fail_criteria": "HSTS ausente. max-age muito baixo. Sem includeSubDomains."
+          },
+          "remediation": "Adicionar Strict-Transport-Security: max-age=31536000; includeSubDomains; preload."
+        },
+        {
+          "check_id": "SH-003",
+          "name": "X-Frame-Options ausente",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "hybrid",
+            "steps": [
+              "grep -rn -iE '(x.frame.options|frame.*deny|frame.*sameorigin|clickjack)' ${repo_path}",
+              "Se endpoint_base_url: curl -sI ${endpoint_base_url}/ | grep -i x-frame",
+              "Verificar se CSP frame-ancestors está configurado como alternativa moderna."
+            ],
+            "pass_criteria": "X-Frame-Options: DENY ou SAMEORIGIN. Ou CSP frame-ancestors configurado.",
+            "fail_criteria": "Sem proteção contra clickjacking. Aplicação pode ser embedded em iframe de terceiros."
+          },
+          "remediation": "Adicionar X-Frame-Options: DENY (ou SAMEORIGIN se iframe necessário). Preferir CSP frame-ancestors."
+        },
+        {
+          "check_id": "SH-004",
+          "name": "X-Content-Type-Options ausente",
+          "severity_if_fail": "LOW",
+          "agent_instructions": {
+            "strategy": "hybrid",
+            "steps": [
+              "grep -rn -iE '(x.content.type.options|nosniff)' ${repo_path}",
+              "Se endpoint_base_url: curl -sI ${endpoint_base_url}/ | grep -i x-content-type"
+            ],
+            "pass_criteria": "X-Content-Type-Options: nosniff presente.",
+            "fail_criteria": "Header ausente. Browser pode MIME-sniff conteúdo."
+          },
+          "remediation": "Adicionar X-Content-Type-Options: nosniff em todas as respostas."
+        },
+        {
+          "check_id": "SH-005",
+          "name": "Referrer-Policy ausente",
+          "severity_if_fail": "LOW",
+          "agent_instructions": {
+            "strategy": "hybrid",
+            "steps": [
+              "grep -rn -iE '(referrer.policy)' ${repo_path}",
+              "Se endpoint_base_url: curl -sI ${endpoint_base_url}/ | grep -i referrer-policy"
+            ],
+            "pass_criteria": "Referrer-Policy configurado (strict-origin-when-cross-origin ou no-referrer).",
+            "fail_criteria": "Header ausente. Referrer completo enviado a terceiros."
+          },
+          "remediation": "Adicionar Referrer-Policy: strict-origin-when-cross-origin (ou no-referrer para máxima privacidade)."
+        }
+      ]
+    },
+
+    "logging_monitoring": {
+      "task_ref": "SEC-020",
+      "domain": "logging_monitoring",
+      "title": "Logs e Monitoramento",
+      "priority": "medium",
+      "input_requirements": {
+        "required": ["repo_path"],
+        "optional": ["infra_config_path"]
+      },
+      "checks": [
+        {
+          "check_id": "LM-001",
+          "name": "Logs contendo dados sensíveis",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Referência cruzada com SC-008.",
+              "Adicionalmente: verificar se exceptions/stack traces incluem variáveis sensíveis.",
+              "Verificar se logs de request incluem body com dados PII.",
+              "grep -rn -iE '(log.*req\\.body|log.*request\\.data|logger.*payload|console\\.log.*password)' ${repo_path}"
+            ],
+            "pass_criteria": "Logs sem dados PII/sensíveis. Redação de campos sensíveis implementada.",
+            "fail_criteria": "Dados sensíveis em logs. Stack traces com variáveis PII."
+          },
+          "remediation": "Implementar redação de campos sensíveis. Mascarar PII em logs. Nunca logar request bodies completos."
+        },
+        {
+          "check_id": "LM-002",
+          "name": "Ausência de logs de auditoria",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Verificar se ações críticas são logadas: login, logout, create/delete user, change permissions, access sensitive data.",
+              "grep -rn -iE '(audit.*log|audit.*trail|security.*log|event.*log.*auth|log.*login|log.*permission)' ${repo_path}",
+              "Verificar se logs incluem: who (user_id), what (action), when (timestamp), where (IP), result (success/fail)."
+            ],
+            "pass_criteria": "Audit trail para ações críticas. Logs incluem who/what/when/where/result.",
+            "fail_criteria": "Sem logs de auditoria. Ações críticas não rastreáveis."
+          },
+          "remediation": "Implementar audit logging para: auth events, permission changes, data access, admin actions. Incluir user_id, action, timestamp, IP, result."
+        },
+        {
+          "check_id": "LM-003",
+          "name": "Logs não estruturados",
+          "severity_if_fail": "LOW",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Verificar formato de logs: grep -rn -iE '(winston|pino|bunyan|structlog|logrus|zap|slog|monolog)' ${repo_path}",
+              "Verificar se logs são JSON/structured ou plaintext.",
+              "Verificar se há formatador consistente configurado."
+            ],
+            "pass_criteria": "Logs estruturados (JSON/JSONL). Logger configurado com formatador consistente.",
+            "fail_criteria": "Logs plaintext sem estrutura. console.log para logging em produção."
+          },
+          "remediation": "Usar logger estruturado (pino, winston JSON, structlog). Formato JSONL para facilitar parsing e análise."
+        },
+        {
+          "check_id": "LM-004",
+          "name": "Ausência de alertas de segurança",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn -iE '(alert|alarm|notify|webhook.*security|slack.*alert|pagerduty|opsgenie|sentry)' ${repo_path}",
+              "Verificar se há alertas para: múltiplas falhas de login, privilege escalation attempts, rate limit exceeded, error rate spikes.",
+              "Verificar se há integração com monitoring (Datadog, Prometheus, Grafana, CloudWatch)."
+            ],
+            "pass_criteria": "Alertas configurados para eventos de segurança. Integração com plataforma de monitoring.",
+            "fail_criteria": "Sem alertas de segurança. Eventos críticos não geram notificação."
+          },
+          "remediation": "Configurar alertas para: auth failures > threshold, error rate spikes, suspicious patterns. Integrar com Sentry/Datadog/PagerDuty."
+        },
+        {
+          "check_id": "LM-005",
+          "name": "Ausência de correlação de requisições",
+          "severity_if_fail": "LOW",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn -iE '(correlation.id|request.id|trace.id|x-request-id|x-correlation-id|opentelemetry|jaeger|zipkin)' ${repo_path}",
+              "Verificar se há middleware que injeta correlation ID em cada request.",
+              "Verificar se correlation ID é propagado para serviços downstream."
+            ],
+            "pass_criteria": "Correlation ID gerado por request. Propagado em chamadas entre serviços. Presente em todos os logs.",
+            "fail_criteria": "Sem correlation ID. Impossível rastrear request através de serviços."
+          },
+          "remediation": "Implementar middleware de correlation ID. Propagar via header (X-Request-ID). Incluir em todos os logs. Considerar OpenTelemetry."
+        }
+      ]
+    },
+
+    "infrastructure": {
+      "task_ref": "SEC-021",
+      "domain": "infrastructure",
+      "title": "Infraestrutura",
+      "priority": "high",
+      "input_requirements": {
+        "required": ["repo_path"],
+        "optional": ["infra_config_path", "endpoint_base_url"]
+      },
+      "checks": [
+        {
+          "check_id": "IF-001",
+          "name": "HTTPS opcional",
+          "severity_if_fail": "CRITICAL",
+          "agent_instructions": {
+            "strategy": "hybrid",
+            "steps": [
+              "Referência cruzada com CR-001.",
+              "Verificar configs de infra: grep -rn -iE '(listen 80|:80|http://|tls.*false|ssl.*off)' ${infra_config_path}",
+              "Verificar se load balancer termina TLS e backend aceita apenas connections internas.",
+              "Se endpoint_base_url: verificar redirect HTTP→HTTPS e certificado válido."
+            ],
+            "pass_criteria": "HTTPS obrigatório. HTTP redireciona. Certificado válido e não expirado.",
+            "fail_criteria": "Aplicação acessível via HTTP sem redirect. Certificado expirado ou self-signed em produção."
+          },
+          "remediation": "Configurar HTTPS obrigatório. Redirect 301 em HTTP. Certificado válido (Let's Encrypt). HSTS header."
+        },
+        {
+          "check_id": "IF-002",
+          "name": "Ausência de firewall",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Verificar configs de cloud/infra: grep -rn -iE '(security.*group|firewall|iptables|ufw|nsg|network.*policy)' ${infra_config_path}",
+              "Verificar se há network policies em Kubernetes: find ${infra_config_path} -name '*network*policy*'",
+              "Verificar se portas expostas são mínimas: grep -rn -iE '(expose|ports:)' ${infra_config_path}/docker-compose*"
+            ],
+            "pass_criteria": "Firewall configurado com deny-by-default. Apenas portas necessárias expostas. Security groups restritivos.",
+            "fail_criteria": "Sem firewall. Todas as portas abertas. Security group com 0.0.0.0/0 em portas sensíveis."
+          },
+          "remediation": "Configurar firewall deny-by-default. Abrir apenas portas necessárias (80, 443). DB/cache apenas acessível internamente. Security groups restritivos."
+        },
+        {
+          "check_id": "IF-003",
+          "name": "Ausência de WAF",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn -iE '(waf|cloudflare|aws.*waf|azure.*waf|modsecurity|mod_security)' ${repo_path} ${infra_config_path}",
+              "Verificar se há proteção a nível de CDN/proxy (Cloudflare, AWS CloudFront com WAF).",
+              "Verificar se WAF tem regras para OWASP Top 10."
+            ],
+            "pass_criteria": "WAF configurado com regras para OWASP Top 10. Ou CDN com proteção integrada.",
+            "fail_criteria": "Sem WAF ou proteção equivalente em endpoints públicos."
+          },
+          "remediation": "Implementar WAF (Cloudflare, AWS WAF, Azure WAF, ModSecurity). Configurar regras OWASP Core Rule Set. Monitorar falsos positivos."
+        },
+        {
+          "check_id": "IF-004",
+          "name": "Network segmentation ausente",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Verificar se há separação de rede: frontend, backend, database em segments diferentes.",
+              "Verificar docker-compose: services de DB acessíveis apenas internamente.",
+              "grep -rn -iE '(internal.*network|private.*subnet|vnet|vpc|network.*isolat)' ${infra_config_path}",
+              "Verificar Kubernetes: namespaces, network policies, service mesh."
+            ],
+            "pass_criteria": "DB em rede privada. Frontend/backend separados. Comunicação interna autenticada.",
+            "fail_criteria": "Todos os serviços na mesma rede. DB acessível publicamente. Sem segmentação."
+          },
+          "remediation": "Segregar em camadas: DMZ (frontend), app (backend), data (DB). DB apenas acessível do backend. Network policies em Kubernetes."
+        },
+        {
+          "check_id": "IF-005",
+          "name": "Backups não configurados",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn -iE '(backup|snapshot|dump|pg_dump|mysqldump|mongodump|restore|recovery)' ${repo_path} ${infra_config_path}",
+              "Verificar se há schedule de backup automatizado.",
+              "Verificar se há teste de restore documentado.",
+              "Verificar se backups são armazenados em localização diferente (cross-region, off-site)."
+            ],
+            "pass_criteria": "Backups automatizados. Testados periodicamente. Armazenados off-site. Política de retenção definida.",
+            "fail_criteria": "Sem backups configurados. Backups nunca testados. Mesmo local de armazenamento."
+          },
+          "remediation": "Configurar backups automatizados (diário DB, semanal full). Testar restore mensalmente. Armazenar off-site/cross-region. Criptografar backups."
+        },
+        {
+          "check_id": "IF-006",
+          "name": "Proteção contra DDoS ausente",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn -iE '(ddos|cloudflare|aws.*shield|azure.*ddos|rate.*limit|throttle)' ${repo_path} ${infra_config_path}",
+              "Verificar se há CDN/proxy com proteção DDoS (Cloudflare, AWS CloudFront, etc.).",
+              "Verificar se há rate limiting a nível de infraestrutura (nginx, load balancer)."
+            ],
+            "pass_criteria": "Proteção DDoS via CDN/cloud provider. Rate limiting na infra. Plano de resposta a DDoS.",
+            "fail_criteria": "Sem proteção DDoS. Aplicação exposta diretamente. Sem rate limiting na infra."
+          },
+          "remediation": "Implementar CDN com proteção DDoS (Cloudflare, AWS Shield). Rate limiting em nginx/load balancer. Não expor IP do origin server."
+        }
+      ]
+    },
+
+    "devsecops": {
+      "task_ref": "SEC-022",
+      "domain": "devsecops",
+      "title": "DevSecOps",
+      "priority": "medium",
+      "input_requirements": {
+        "required": ["repo_path"],
+        "optional": ["ci_config_path"]
+      },
+      "checks": [
+        {
+          "check_id": "DO-001",
+          "name": "Ausência de code review",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Verificar branch protection: grep -rn -iE '(required.*review|pull_request|merge_request|CODEOWNERS)' ${repo_path}",
+              "Verificar presença de CODEOWNERS: ls ${repo_path}/CODEOWNERS ${repo_path}/.github/CODEOWNERS",
+              "Verificar se CI/CD requer approval antes de merge."
+            ],
+            "pass_criteria": "Branch protection habilitado. Review obrigatório. CODEOWNERS definido para paths críticos.",
+            "fail_criteria": "Push direto para main/master permitido. Sem review obrigatório."
+          },
+          "remediation": "Configurar branch protection. Exigir pelo menos 1 approval. CODEOWNERS para paths de segurança. Bloquear push direto para main."
+        },
+        {
+          "check_id": "DO-002",
+          "name": "Pipeline sem análise de segurança",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Analisar CI config: cat ${ci_config_path}/* 2>/dev/null || cat ${repo_path}/.github/workflows/* 2>/dev/null",
+              "grep -rn -iE '(snyk|sonarqube|semgrep|bandit|eslint-security|brakeman|gosec|trivy|grype)' ${ci_config_path} ${repo_path}",
+              "Verificar se análise de segurança bloqueia merge/deploy em caso de findings."
+            ],
+            "pass_criteria": "SAST integrado na CI. Findings bloqueiam merge. Scan de dependencies na CI.",
+            "fail_criteria": "CI sem nenhuma análise de segurança. Apenas lint e testes funcionais."
+          },
+          "remediation": "Integrar SAST (Semgrep, SonarQube) na CI. Configurar para bloquear em findings high/critical. Adicionar dependency scanning."
+        },
+        {
+          "check_id": "DO-003",
+          "name": "Secrets scanning ausente",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn -iE '(gitleaks|trufflehog|detect-secrets|git-secrets|secretlint)' ${ci_config_path} ${repo_path}",
+              "Verificar se há pre-commit hook para secrets: cat ${repo_path}/.pre-commit-config.yaml 2>/dev/null",
+              "Verificar se GitHub Advanced Security secret scanning está habilitado."
+            ],
+            "pass_criteria": "Secrets scanning em CI e/ou pre-commit. Alertas configurados para detecções.",
+            "fail_criteria": "Sem secrets scanning. Segredos podem ser commitados sem detecção."
+          },
+          "remediation": "Implementar gitleaks ou trufflehog na CI. Adicionar pre-commit hook com detect-secrets. Habilitar GitHub secret scanning se disponível."
+        },
+        {
+          "check_id": "DO-004",
+          "name": "SAST não implementado",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn -iE '(semgrep|sonarqube|sonar-scanner|bandit|eslint.*security|brakeman|gosec|spotbugs|checkmarx|fortify)' ${ci_config_path} ${repo_path}",
+              "Verificar se há config de SAST: find ${repo_path} -name '.semgrep*' -o -name 'sonar-project.properties' -o -name '.bandit'",
+              "Verificar se rules são mantidas atualizadas."
+            ],
+            "pass_criteria": "SAST configurado e executando na CI. Rules atualizadas. Findings triaged.",
+            "fail_criteria": "Sem SAST. Análise estática limitada a linting funcional."
+          },
+          "remediation": "Implementar Semgrep (open source, multi-linguagem) ou SonarQube. Configurar na CI. Triage findings regularmente."
+        },
+        {
+          "check_id": "DO-005",
+          "name": "DAST não implementado",
+          "severity_if_fail": "LOW",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn -iE '(zap|owasp.*zap|nikto|burp|dast|dynamic.*scan|nuclei)' ${ci_config_path} ${repo_path}",
+              "Verificar se há scan dinâmico em ambiente de staging antes de deploy para produção."
+            ],
+            "pass_criteria": "DAST executado em staging antes de deploy para produção. Findings críticos bloqueiam deploy.",
+            "fail_criteria": "Sem DAST. Aplicação nunca testada dinamicamente antes de produção."
+          },
+          "remediation": "Implementar OWASP ZAP ou Nuclei em CI contra staging. Scan antes de deploy para produção. Triage findings antes de release."
+        },
+        {
+          "check_id": "DO-006",
+          "name": "Deploy sem auditoria",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Verificar se deploys são rastreáveis: grep -rn -iE '(deploy.*log|deployment.*audit|changelog|release.*note)' ${ci_config_path}",
+              "Verificar se há approval gate antes de deploy para produção.",
+              "Verificar se há rollback automatizado em caso de falha."
+            ],
+            "pass_criteria": "Deploys logados com who/what/when. Approval para produção. Rollback automatizado.",
+            "fail_criteria": "Deploys sem rastreabilidade. Qualquer pessoa pode deployar para produção. Sem rollback."
+          },
+          "remediation": "Implementar audit trail para deploys. Exigir approval para produção. Configurar rollback automático em caso de health check failure."
+        }
+      ]
+    },
+
+    "data_security": {
+      "task_ref": "SEC-023",
+      "domain": "data_security",
+      "title": "Segurança de Dados",
+      "priority": "critical",
+      "input_requirements": {
+        "required": ["repo_path"],
+        "optional": ["docs_path"]
+      },
+      "checks": [
+        {
+          "check_id": "DA-001",
+          "name": "Dados sensíveis armazenados sem proteção",
+          "severity_if_fail": "CRITICAL",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Referência cruzada com CR-003.",
+              "Mapear todos os campos PII em schemas: CPF, RG, endereço, telefone, email, dados de saúde, dados financeiros.",
+              "Verificar se há classificação de dados (público, interno, confidencial, restrito).",
+              "Verificar se campos classificados como confidencial/restrito têm proteção adicional."
+            ],
+            "pass_criteria": "Dados classificados. PII com proteção proporcional à classificação. Campos sensíveis criptografados.",
+            "fail_criteria": "Sem classificação de dados. PII armazenado sem proteção adicional."
+          },
+          "remediation": "Classificar dados por sensibilidade. Criptografar campos sensíveis. Implementar access control por classificação."
+        },
+        {
+          "check_id": "DA-002",
+          "name": "Dados excessivos armazenados",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Analisar schemas de banco para campos que podem ser excessivos: dados que não são necessários para o negócio.",
+              "Verificar se há coleta de dados além do necessário (princípio da minimização).",
+              "Verificar se dados temporários (logs, tokens expirados, sessões antigas) são limpos."
+            ],
+            "pass_criteria": "Coleta mínima de dados. Dados temporários com cleanup automático. Minimização aplicada.",
+            "fail_criteria": "Coleta de dados além do necessário. Dados temporários acumulando indefinidamente."
+          },
+          "remediation": "Aplicar princípio da minimização. Coletar apenas dados necessários. Configurar cleanup de dados temporários. Revisar campos coletados periodicamente."
+        },
+        {
+          "check_id": "DA-003",
+          "name": "Ausência de política de retenção",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn -iE '(retention|retenção|expiry|purge|cleanup|ttl.*data|data.*lifecycle)' ${repo_path} ${docs_path}",
+              "Verificar se há jobs de cleanup automático: grep -rn -iE '(cron|schedule|cleanup|purge|archive)' ${repo_path}",
+              "Verificar se há documentação de política de retenção."
+            ],
+            "pass_criteria": "Política de retenção documentada e implementada. Cleanup automático. Diferentes TTLs por tipo de dado.",
+            "fail_criteria": "Sem política de retenção. Dados acumulam indefinidamente. Sem cleanup automático."
+          },
+          "remediation": "Definir política de retenção por tipo de dado. Implementar cleanup automático. Documentar e auditar compliance."
+        },
+        {
+          "check_id": "DA-004",
+          "name": "Ausência de anonimização",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn -iE '(anonymize|anonimiz|pseudonymize|pseudonim|mask|redact|hash.*pii)' ${repo_path}",
+              "Verificar se dados usados para analytics/relatórios são anonimizados.",
+              "Verificar se há anonimização em ambientes de dev/staging (não usar dados reais de produção).",
+              "Verificar se exports/downloads de dados incluem anonimização."
+            ],
+            "pass_criteria": "Dados anonimizados para analytics. Ambientes não-produção com dados anonimizados. Exports com opção de anonimização.",
+            "fail_criteria": "Dados reais em ambientes de dev. Analytics com PII não anonimizado. Sem mecanismo de anonimização."
+          },
+          "remediation": "Implementar anonimização para analytics e ambientes não-produção. Usar pseudonimização reversível onde necessário para negócio. Mascarar PII em exports."
+        },
+        {
+          "check_id": "DA-005",
+          "name": "Não conformidade com LGPD/GDPR",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn -iE '(lgpd|gdpr|consent|consentimento|data.*protection|proteção.*dados|dpo|encarregado)' ${repo_path} ${docs_path}",
+              "Verificar se há mecanismo de consentimento: opt-in para coleta de dados.",
+              "Verificar se há funcionalidade de portabilidade de dados (export dos dados do usuário).",
+              "Verificar se há funcionalidade de exclusão/anonimização (direito ao esquecimento).",
+              "Verificar se há registro de tratamentos de dados (ROPA).",
+              "Verificar se há base legal definida para cada tratamento de dados pessoais."
+            ],
+            "pass_criteria": "Consentimento implementado. Portabilidade disponível. Exclusão/anonimização funcional. Base legal documentada.",
+            "fail_criteria": "Sem mecanismo de consentimento. Sem portabilidade. Sem direito ao esquecimento. Sem documentação LGPD."
+          },
+          "remediation": "Implementar consent management. Criar endpoints de portabilidade (export JSON/CSV). Implementar exclusão/anonimização. Documentar base legal por tratamento. Designar DPO."
+        }
+      ]
+    },
+
+    "frontend_security": {
+      "task_ref": "SEC-024",
+      "domain": "frontend_security",
+      "title": "Segurança de Frontend",
+      "priority": "medium",
+      "input_requirements": {
+        "required": ["repo_path"],
+        "optional": []
+      },
+      "checks": [
+        {
+          "check_id": "FE-001",
+          "name": "Tokens armazenados em localStorage",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "grep -rn --include='*.{js,ts,jsx,tsx,vue,svelte}' -iE '(localStorage\\.(set|get)Item.*token|localStorage.*auth|localStorage.*jwt|sessionStorage.*token)' ${repo_path}",
+              "Verificar se há alternativa segura: httpOnly cookies para tokens de sessão.",
+              "Verificar se tokens em localStorage são de baixo risco (public API keys) ou de alto risco (auth tokens)."
+            ],
+            "pass_criteria": "Auth tokens em httpOnly cookies. Apenas dados não-sensíveis em localStorage.",
+            "fail_criteria": "JWT/auth tokens armazenados em localStorage. Acessíveis via XSS."
+          },
+          "remediation": "Mover auth tokens para httpOnly cookies. Se SPA, usar BFF (Backend For Frontend) pattern com cookies httpOnly. localStorage apenas para preferências não-sensíveis."
+        },
+        {
+          "check_id": "FE-002",
+          "name": "HTML não sanitizado",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Referência cruzada com IV-005 focado no frontend.",
+              "grep -rn --include='*.{jsx,tsx,vue,svelte,js,ts}' -iE '(dangerouslySetInnerHTML|v-html|\\[innerHTML\\]|\\{@html)' ${repo_path}",
+              "Para cada uso: verificar se dado é sanitizado antes com DOMPurify ou equivalente.",
+              "Verificar se CMS/rich text content é sanitizado server-side E client-side."
+            ],
+            "pass_criteria": "Todos os usos de innerHTML/v-html sanitizados com DOMPurify. Ou dados originam-se de fonte confiável (sistema, não usuário).",
+            "fail_criteria": "innerHTML/v-html com dados de usuário sem sanitização."
+          },
+          "remediation": "Sanitizar com DOMPurify antes de renderizar HTML dinâmico. Preferir text content ao invés de innerHTML. Sanitizar server-side como defesa em profundidade."
+        },
+        {
+          "check_id": "FE-003",
+          "name": "Dependências JS vulneráveis",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "tool_execution",
+            "steps": [
+              "Referência cruzada com DS-001 focado no frontend.",
+              "npm audit --json 2>/dev/null no diretório frontend.",
+              "Verificar se há dependências desatualizadas com vulnerabilidades conhecidas.",
+              "Verificar se CDN scripts usam SRI (Subresource Integrity): grep -rn 'integrity=' ${repo_path}"
+            ],
+            "pass_criteria": "Zero vulnerabilidades high/critical em dependências frontend. CDN scripts com SRI.",
+            "fail_criteria": "Vulnerabilidades high/critical em dependências frontend. CDN scripts sem SRI."
+          },
+          "remediation": "Atualizar dependências vulneráveis. Adicionar SRI em scripts de CDN. Configurar npm audit na CI."
+        },
+        {
+          "check_id": "FE-004",
+          "name": "Lógica crítica no frontend",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Buscar por lógica de negócio no frontend: cálculos de preço, validações de regra de negócio, verificações de limites.",
+              "grep -rn --include='*.{jsx,tsx,vue,svelte,js,ts}' -iE '(calculatePrice|calcul.*total|discount|validate.*coupon|check.*limit|isEligible|canPurchase)' em diretórios frontend.",
+              "Verificar se lógica é duplicada no backend ou se existe apenas no frontend.",
+              "Verificar se há validações de formulário que não são replicadas server-side."
+            ],
+            "pass_criteria": "Toda lógica de negócio e validação existe no backend. Frontend é UX, não enforcement.",
+            "fail_criteria": "Cálculos de preço/desconto apenas no frontend. Validações de regra de negócio sem server-side."
+          },
+          "remediation": "Mover toda lógica de negócio para o backend. Frontend pode validar para UX, mas backend é source of truth. Nunca confiar em cálculos do client."
+        }
+      ]
+    },
+
+    "ai_llm_security": {
+      "task_ref": "SEC-025",
+      "domain": "ai_llm_security",
+      "title": "Segurança de IA/LLM",
+      "priority": "high",
+      "input_requirements": {
+        "required": ["repo_path"],
+        "optional": ["endpoint_base_url"]
+      },
+      "checks": [
+        {
+          "check_id": "AI-001",
+          "name": "Prompt injection possível",
+          "severity_if_fail": "CRITICAL",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Identificar onde prompts são construídos: grep -rn -iE '(prompt|system.*message|user.*message|chat.*completion|messages.*role)' ${repo_path}",
+              "Verificar se user input é inserido diretamente no prompt sem sanitização.",
+              "Verificar se há separação clara entre system prompt e user input.",
+              "Buscar por concatenação de input: grep -rn -E '(prompt.*\\+.*req|f\".*{.*input|`.*\\$\\{.*user)' ${repo_path}",
+              "Verificar se há input validation antes de envio ao LLM."
+            ],
+            "pass_criteria": "User input sanitizado. Separação clara system/user. Input validation presente. Delimitadores de contexto.",
+            "fail_criteria": "Input de usuário concatenado diretamente no system prompt. Sem sanitização. Sem delimitadores."
+          },
+          "remediation": "Separar system prompt de user input. Usar delimitadores claros (XML tags, markers). Sanitizar input. Implementar prompt injection detection. Validar output antes de uso."
+        },
+        {
+          "check_id": "AI-002",
+          "name": "LLM com acesso irrestrito a ferramentas",
+          "severity_if_fail": "CRITICAL",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Identificar tools/functions disponíveis ao LLM: grep -rn -iE '(tools|functions|function_call|tool_use|tool_choice)' ${repo_path}",
+              "Verificar escopo de cada tool: quais operações pode realizar, quais dados pode acessar.",
+              "Verificar se há approval/confirmation antes de execução de tool (human-in-the-loop para ações destrutivas).",
+              "Verificar se LLM pode executar código arbitrário, fazer requests HTTP arbitrárias, ou acessar filesystem irrestritamente."
+            ],
+            "pass_criteria": "Tools com escopo mínimo. Ações destrutivas com approval. Sem execução de código arbitrário. Least privilege aplicado.",
+            "fail_criteria": "LLM com acesso a shell/exec irrestrito. Tools sem escopo definido. Sem approval para ações destrutivas."
+          },
+          "remediation": "Aplicar least privilege em tools. Implementar approval para ações destrutivas. Sandboxar execução de código. Definir escopo explícito por tool."
+        },
+        {
+          "check_id": "AI-003",
+          "name": "Ausência de filtragem de input",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Verificar se há filtragem/moderação de input antes do LLM: grep -rn -iE '(moderat|filter|content.*policy|safety|guard|shield)' ${repo_path}",
+              "Verificar se há limite de tamanho de input (previne context window abuse).",
+              "Verificar se há detecção de patterns maliciosos (jailbreak patterns, instruction injection).",
+              "Verificar se há rate limiting para chamadas ao LLM."
+            ],
+            "pass_criteria": "Input filtrado/moderado. Limite de tamanho. Rate limiting. Detecção de patterns maliciosos.",
+            "fail_criteria": "Input enviado ao LLM sem qualquer filtragem. Sem limite de tamanho. Sem rate limiting."
+          },
+          "remediation": "Implementar input moderation (content filter). Limitar tamanho de input. Rate limit por user. Detectar patterns de jailbreak/injection."
+        },
+        {
+          "check_id": "AI-004",
+          "name": "Possibilidade de exfiltração de dados",
+          "severity_if_fail": "HIGH",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Verificar se LLM output pode conter dados sensíveis do contexto: dados de outros usuários, dados internos, system prompt.",
+              "Verificar se LLM pode gerar markdown/HTML com links externos (exfiltração via image tags, links).",
+              "grep -rn -iE '(render.*markdown|markdown.*render|html.*output|dangerously)' próximo a output do LLM.",
+              "Verificar se output do LLM é sanitizado antes de exibição."
+            ],
+            "pass_criteria": "Output sanitizado. Markdown/HTML filtrado de links externos. Dados sensíveis não vazam no output.",
+            "fail_criteria": "LLM output renderizado como HTML sem sanitização. Links externos permitidos em output. System prompt vazando."
+          },
+          "remediation": "Sanitizar output do LLM. Filtrar markdown de imagens/links externos. Validar que system prompt não aparece no output. Implementar output guardrails."
+        },
+        {
+          "check_id": "AI-005",
+          "name": "Logs de decisão da IA inexistentes",
+          "severity_if_fail": "MEDIUM",
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Verificar se interações com LLM são logadas: grep -rn -iE '(log.*llm|log.*ai|log.*completion|audit.*ai|trace.*llm)' ${repo_path}",
+              "Verificar se logs incluem: input (sanitizado), output, model, tokens, latência, user_id.",
+              "Verificar se há rastreabilidade de decisões do agente (qual tool chamou, por quê, resultado).",
+              "Verificar se logs são compatíveis com framework ESAA (event sourcing para agentes)."
+            ],
+            "pass_criteria": "Interações logadas. Input/output rastreáveis. Decisões de tool-use auditáveis. Métricas de uso coletadas.",
+            "fail_criteria": "Sem logs de interações LLM. Decisões não rastreáveis. Sem métricas de uso."
+          },
+          "remediation": "Logar todas as interações: input (redact PII), output, model, tokens, latência, user_id. Implementar event sourcing para decisões de agentes (ESAA). Reter logs para auditoria."
+        }
+      ]
+    }
+  }
+}
