@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>19.5 / 100 — O Custo Real do Vibe Coding</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=JetBrains+Mono:wght@400;600&family=Source+Sans+3:ital,wght@0,300;0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0c;
+    --surface: #111116;
+    --surface-2: #1a1a22;
+    --border: #2a2a35;
+    --text: #e8e6e3;
+    --text-muted: #8a8a99;
+    --accent: #ff3b30;
+    --accent-glow: rgba(255, 59, 48, 0.15);
+    --accent-2: #ff6b35;
+    --green: #34c759;
+    --yellow: #ffd60a;
+    --blue: #5ac8fa;
+    --purple: #bf5af2;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 18px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── HERO ── */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 2rem;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 600px 400px at 50% 45%, var(--accent-glow) 0%, transparent 70%),
+      radial-gradient(ellipse 300px 300px at 30% 60%, rgba(191,90,242,0.06) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .hero-score {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: clamp(5rem, 14vw, 12rem);
+    font-weight: 600;
+    color: var(--accent);
+    line-height: 1;
+    letter-spacing: -0.03em;
+    position: relative;
+    animation: score-pulse 3s ease-in-out infinite;
+  }
+
+  @keyframes score-pulse {
+    0%, 100% { opacity: 1; text-shadow: 0 0 40px rgba(255,59,48,0.3); }
+    50% { opacity: 0.85; text-shadow: 0 0 80px rgba(255,59,48,0.5); }
+  }
+
+  .hero-score span {
+    color: var(--text-muted);
+    font-size: 0.4em;
+    vertical-align: baseline;
+  }
+
+  .hero-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.3em;
+    margin-top: 1rem;
+    padding: 0.4rem 1.2rem;
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+  }
+
+  .hero h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: clamp(1.8rem, 4vw, 3.2rem);
+    font-weight: 400;
+    line-height: 1.25;
+    max-width: 800px;
+    margin-top: 2.5rem;
+  }
+
+  .hero h1 em {
+    color: var(--accent-2);
+    font-style: italic;
+  }
+
+  .hero-sub {
+    color: var(--text-muted);
+    font-size: 1.05rem;
+    max-width: 600px;
+    margin-top: 1.2rem;
+    line-height: 1.7;
+  }
+
+  .hero-meta {
+    margin-top: 2.5rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    display: flex;
+    gap: 2rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .hero-meta span::before {
+    content: '›';
+    color: var(--accent);
+    margin-right: 0.5rem;
+  }
+
+  .scroll-hint {
+    position: absolute;
+    bottom: 2rem;
+    animation: float 2s ease-in-out infinite;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(8px); }
+  }
+
+  /* ── LAYOUT ── */
+  .container {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 0 2rem;
+  }
+
+  section {
+    padding: 5rem 0;
+  }
+
+  /* ── TYPOGRAPHY ── */
+  h2 {
+    font-family: 'DM Serif Display', serif;
+    font-size: clamp(1.6rem, 3vw, 2.4rem);
+    font-weight: 400;
+    margin-bottom: 1.5rem;
+    line-height: 1.3;
+  }
+
+  h3 {
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 1.15rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    margin: 3rem 0 1rem;
+  }
+
+  p {
+    margin-bottom: 1.4rem;
+    color: var(--text);
+  }
+
+  p.muted { color: var(--text-muted); }
+
+  strong { color: #fff; font-weight: 600; }
+
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ── DIVIDER ── */
+  .divider {
+    border: none;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border), transparent);
+    margin: 4rem 0;
+  }
+
+  /* ── CALLOUT ── */
+  .callout {
+    background: var(--surface);
+    border-left: 3px solid var(--accent);
+    padding: 1.5rem 1.8rem;
+    margin: 2rem 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 1.05rem;
+    line-height: 1.7;
+  }
+
+  .callout.green { border-left-color: var(--green); }
+  .callout.yellow { border-left-color: var(--yellow); }
+  .callout.purple { border-left-color: var(--purple); }
+
+  .callout strong { display: block; margin-bottom: 0.4rem; }
+
+  /* ── SCORE CARD ── */
+  .score-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 2rem;
+    margin: 2.5rem 0;
+  }
+
+  .score-card h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--text-muted);
+    margin-bottom: 1.2rem;
+  }
+
+  .domain-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.8rem;
+  }
+
+  .domain-label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    min-width: 200px;
+    text-align: right;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .domain-bar-bg {
+    flex: 1;
+    height: 8px;
+    background: var(--surface-2);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .domain-bar {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 1.5s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .domain-pct {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    min-width: 50px;
+    font-weight: 600;
+  }
+
+  /* ── VULN TABLE ── */
+  .vuln-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 2rem 0;
+    font-size: 0.9rem;
+  }
+
+  .vuln-table th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+    text-align: left;
+    padding: 0.8rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .vuln-table td {
+    padding: 0.7rem 0.6rem;
+    border-bottom: 1px solid var(--surface-2);
+    vertical-align: top;
+  }
+
+  .badge {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 0.2rem 0.55rem;
+    border-radius: 3px;
+  }
+
+  .badge.critical { background: rgba(255,59,48,0.15); color: var(--accent); border: 1px solid rgba(255,59,48,0.3); }
+  .badge.high { background: rgba(255,214,10,0.1); color: var(--yellow); border: 1px solid rgba(255,214,10,0.25); }
+
+  /* ── MODEL GRID ── */
+  .model-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin: 2rem 0;
+  }
+
+  .model-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem 1.4rem;
+    text-align: center;
+    transition: border-color 0.3s;
+  }
+
+  .model-card:hover { border-color: var(--accent); }
+
+  .model-card .name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 0.3rem;
+  }
+
+  .model-card .provider {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+
+  /* ── CODE BLOCK ── */
+  .code-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem 1.5rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    line-height: 1.8;
+    overflow-x: auto;
+    margin: 1.5rem 0;
+    color: var(--text-muted);
+  }
+
+  .code-block .comment { color: #555; }
+  .code-block .danger { color: var(--accent); }
+  .code-block .ok { color: var(--green); }
+
+  /* ── COUNTER STRIP ── */
+  .counter-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 2.5rem 0;
+  }
+
+  .counter-item {
+    background: var(--surface);
+    padding: 1.5rem;
+    text-align: center;
+  }
+
+  .counter-item .num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 2rem;
+    font-weight: 600;
+    line-height: 1;
+  }
+
+  .counter-item .num.red { color: var(--accent); }
+  .counter-item .num.yellow { color: var(--yellow); }
+  .counter-item .num.blue { color: var(--blue); }
+
+  .counter-item .label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* ── TIMELINE ── */
+  .timeline {
+    position: relative;
+    padding-left: 2rem;
+    margin: 2rem 0;
+  }
+
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--border);
+  }
+
+  .timeline-item {
+    position: relative;
+    margin-bottom: 2rem;
+  }
+
+  .timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -2rem;
+    top: 0.5rem;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--accent);
+    transform: translateX(-4px);
+  }
+
+  .timeline-item .time {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--accent);
+    margin-bottom: 0.3rem;
+  }
+
+  /* ── BLOCKQUOTE ── */
+  blockquote {
+    border-left: 2px solid var(--purple);
+    padding: 0.8rem 1.5rem;
+    margin: 1.5rem 0;
+    font-style: italic;
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    line-height: 1.7;
+    font-family: 'DM Serif Display', serif;
+  }
+
+  /* ── FOOTER ── */
+  .footer {
+    text-align: center;
+    padding: 4rem 2rem;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.85rem;
+  }
+
+  .footer .author {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.1rem;
+    color: var(--text);
+    margin-bottom: 0.4rem;
+  }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 640px) {
+    .domain-label { min-width: 120px; font-size: 0.7rem; }
+    .vuln-table { font-size: 0.78rem; }
+    .counter-strip { grid-template-columns: repeat(2, 1fr); }
+    .model-grid { grid-template-columns: 1fr 1fr; }
+    section { padding: 3rem 0; }
+  }
+
+  /* ── ANIMATIONS ── */
+  .fade-in {
+    opacity: 0;
+    transform: translateY(20px);
+    animation: fadeUp 0.8s ease forwards;
+  }
+
+  @keyframes fadeUp {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .delay-1 { animation-delay: 0.15s; }
+  .delay-2 { animation-delay: 0.3s; }
+  .delay-3 { animation-delay: 0.45s; }
+  .delay-4 { animation-delay: 0.6s; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ HERO ═══════════════ -->
+<header class="hero">
+  <div class="hero-score fade-in">19.5<span> / 100</span></div>
+  <div class="hero-label fade-in delay-1">Security Score — CRÍTICO</div>
+  <h1 class="fade-in delay-2">O Custo Real do <em>Vibe Coding</em>:<br>quando confiar cegamente no modelo<br>produz código inseguro por design</h1>
+  <p class="hero-sub fade-in delay-3">Usei 5 modelos de IA de ponta para construir um sistema completo. Depois auditei tudo. O resultado é um alerta para qualquer equipe que esteja delegando código a LLMs sem revisão.</p>
+  <div class="hero-meta fade-in delay-4">
+    <span>Elzo Brito</span>
+    <span>Março 2026</span>
+    <span>12 min de leitura</span>
+  </div>
+  <div class="scroll-hint">↓ scroll</div>
+</header>
+
+<!-- ═══════════════ INTRO ═══════════════ -->
+<section>
+  <div class="container">
+
+    <h2>O experimento</h2>
+
+    <p>Existe um termo que se popularizou na comunidade de desenvolvedores: <strong>vibe coding</strong> — a prática de descrever o que você quer, deixar o modelo gerar o código, aceitar o resultado e seguir em frente. Sem revisão rigorosa. Sem auditoria. Sem questionar o que o modelo decidiu omitir. Você confia na "vibe" e o sistema vai tomando forma.</p>
+
+    <p>Eu decidi testar os limites dessa abordagem de forma deliberada. Construí o <strong>ESAA-Supervisor</strong> — um sistema web completo para supervisão de agentes de IA, com backend em FastAPI, frontend em React/TypeScript, orquestração de múltiplos agentes CLI, streaming SSE de logs, gerenciamento de estado canônico baseado em filesystem, chat persistente e telemetria de tokens — usando exclusivamente modelos de IA para gerar o código.</p>
+
+    <div class="model-grid">
+      <div class="model-card">
+        <div class="name">GPT 5.4</div>
+        <div class="provider">OpenAI · Codex</div>
+      </div>
+      <div class="model-card">
+        <div class="name">GPT 5.3-codex</div>
+        <div class="provider">OpenAI · Codex</div>
+      </div>
+      <div class="model-card">
+        <div class="name">Claude Opus 4.6</div>
+        <div class="provider">Anthropic</div>
+      </div>
+      <div class="model-card">
+        <div class="name">Claude Sonnet 4.5</div>
+        <div class="provider">Anthropic</div>
+      </div>
+      <div class="model-card">
+        <div class="name">Gemini 3.1 Pro</div>
+        <div class="provider">Google DeepMind</div>
+      </div>
+    </div>
+
+    <p>O sistema funcionou. O roadmap canônico chegou a <strong>18/18 tasks concluídas</strong>. A interface renderizava artefatos, o chat funcionava, os agentes executavam. Do ponto de vista funcional, era um sucesso que qualquer vibe coder celebraria.</p>
+
+    <p>Então eu fiz o que a maioria não faz: <strong>submeti tudo a uma auditoria de segurança completa</strong>, cobrindo 12 domínios, de autenticação a segurança de IA/LLM, seguindo referências da OWASP ASVS 5.0, CIS Controls v8.1 e NIST CSF 2.0.</p>
+
+    <div class="callout">
+      <strong>O resultado: 19.5 / 100.</strong>
+      Postura de segurança classificada como CRÍTICA. Não "precisando melhorar". Não "abaixo da média". Crítica — com vulnerabilidades que permitem execução remota de código, vazamento de credenciais e manipulação total de estado por atores não autorizados.
+    </div>
+
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ═══════════════ NÚMEROS ═══════════════ -->
+<section>
+  <div class="container">
+
+    <h2>Os números que nenhum modelo te avisou</h2>
+
+    <div class="counter-strip">
+      <div class="counter-item">
+        <div class="num red">9</div>
+        <div class="label">Vulnerabilidades<br>CRITICAL</div>
+      </div>
+      <div class="counter-item">
+        <div class="num yellow">15</div>
+        <div class="label">Vulnerabilidades<br>HIGH</div>
+      </div>
+      <div class="counter-item">
+        <div class="num blue">~61.5h</div>
+        <div class="label">Esforço estimado<br>de remediação</div>
+      </div>
+      <div class="counter-item">
+        <div class="num red">0%</div>
+        <div class="label">Auth /<br>Authorization</div>
+      </div>
+    </div>
+
+    <p>Quando quebramos a pontuação por domínio, o cenário fica nítido: os modelos são excelentes em certas dimensões e <strong>sistematicamente cegos</strong> em outras.</p>
+
+    <div class="score-card">
+      <h4>Score por domínio de segurança</h4>
+
+      <div class="domain-row">
+        <div class="domain-label">Dependencies</div>
+        <div class="domain-bar-bg"><div class="domain-bar" style="width:92.3%;background:var(--green)"></div></div>
+        <div class="domain-pct" style="color:var(--green)">92.3%</div>
+      </div>
+
+      <div class="domain-row">
+        <div class="domain-label">Frontend Security</div>
+        <div class="domain-bar-bg"><div class="domain-bar" style="width:80%;background:var(--green)"></div></div>
+        <div class="domain-pct" style="color:var(--green)">80.0%</div>
+      </div>
+
+      <div class="domain-row">
+        <div class="domain-label">Cryptography</div>
+        <div class="domain-bar-bg"><div class="domain-bar" style="width:37.5%;background:var(--yellow)"></div></div>
+        <div class="domain-pct" style="color:var(--yellow)">37.5%</div>
+      </div>
+
+      <div class="domain-row">
+        <div class="domain-label">Secrets & Config</div>
+        <div class="domain-bar-bg"><div class="domain-bar" style="width:36.4%;background:var(--yellow)"></div></div>
+        <div class="domain-pct" style="color:var(--yellow)">36.4%</div>
+      </div>
+
+      <div class="domain-row">
+        <div class="domain-label">AI / LLM Security</div>
+        <div class="domain-bar-bg"><div class="domain-bar" style="width:5.3%;background:var(--accent)"></div></div>
+        <div class="domain-pct" style="color:var(--accent)">5.3%</div>
+      </div>
+
+      <div class="domain-row">
+        <div class="domain-label">Auth / Authorization</div>
+        <div class="domain-bar-bg"><div class="domain-bar" style="width:0%;background:var(--accent)"></div></div>
+        <div class="domain-pct" style="color:var(--accent)">0.0%</div>
+      </div>
+    </div>
+
+    <p>Note a ironia: os modelos geraram dependências limpas (92.3%) e frontend razoável (80%). Ou seja, as camadas que eles "veem" diretamente — bibliotecas populares, componentes React com padrões conhecidos — ficaram bem. Mas tudo que exige <strong>decisão arquitetural de segurança</strong> — autenticação, autorização, sanitização de prompts, controle de acesso ao filesystem — simplesmente não foi implementado.</p>
+
+    <p class="muted">O score global sofreu uma penalidade severa (Cap 50) pela presença de mais de 3 vulnerabilidades CRITICAL sem mitigação em domínios core. Isso reflete uma metodologia real: não importa quão bom é o frontend se a API está completamente aberta.</p>
+
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ═══════════════ ANATOMIA ═══════════════ -->
+<section>
+  <div class="container">
+
+    <h2>Anatomia do que os modelos não fizeram</h2>
+
+    <p>A tabela abaixo lista as 5 vulnerabilidades mais graves encontradas. Cada uma delas existe porque <strong>nenhum dos 5 modelos</strong>, em nenhum momento da geração do código, decidiu implementar o controle correspondente — a menos que fosse explicitamente solicitado.</p>
+
+    <table class="vuln-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Vulnerabilidade</th>
+          <th>Sev.</th>
+          <th>Impacto</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="color:var(--text-muted)">AZ-001</td>
+          <td><strong>Controle de acesso ausente</strong> — API totalmente aberta; qualquer ator na rede pode executar agentes, modificar o roadmap e ler arquivos do host</td>
+          <td><span class="badge critical">Critical</span></td>
+          <td>Total</td>
+        </tr>
+        <tr>
+          <td style="color:var(--text-muted)">AI-001</td>
+          <td><strong>Prompt injection</strong> — mensagens de chat enviadas diretamente ao LLM sem delimitadores, escape ou filtros de padrões de injeção</td>
+          <td><span class="badge critical">Critical</span></td>
+          <td>Alto</td>
+        </tr>
+        <tr>
+          <td style="color:var(--text-muted)">AZ-002</td>
+          <td><strong>IDOR / Path Traversal</strong> — endpoint <code>/browse</code> permite navegação arbitrária no filesystem do host</td>
+          <td><span class="badge critical">Critical</span></td>
+          <td>Médio</td>
+        </tr>
+        <tr>
+          <td style="color:var(--text-muted)">SC-004</td>
+          <td><strong>CORS permissivo (<code>*</code>)</strong> — qualquer site pode fazer requisições autenticadas à API</td>
+          <td><span class="badge critical">Critical</span></td>
+          <td>Médio</td>
+        </tr>
+        <tr>
+          <td style="color:var(--text-muted)">AI-002</td>
+          <td><strong>LLM com acesso irrestrito</strong> — <code>--approval-mode yolo</code> e <code>--permission-mode bypassPermissions</code> habilitam execução sem aprovação humana</td>
+          <td><span class="badge critical">Critical</span></td>
+          <td>Alto</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>O padrão é claro</h3>
+
+    <p>Modelos de IA otimizam para <strong>fazer funcionar</strong>. Quando você pede um endpoint que lista arquivos, o modelo gera um endpoint que lista arquivos — e funciona perfeitamente. Mas ele não se pergunta: "este endpoint deveria ser acessível sem autenticação?", "o caminho recebido deveria ser sanitizado?", "o CORS deveria ser restrito?".</p>
+
+    <p>Pior: quando geram adaptadores para CLIs de agentes, os modelos consistentemente escolheram os modos <strong>mais permissivos</strong> disponíveis. O Gemini foi configurado com <code>--approval-mode yolo</code>. O Claude Code com <code>--permission-mode bypassPermissions</code>. Não porque o sistema exigia, mas porque eram os caminhos de menor fricção para o código funcionar na primeira tentativa.</p>
+
+    <div class="code-block">
+<span class="comment"># O que os modelos geraram:</span>
+command = ["gemini", <span class="danger">"--approval-mode", "yolo"</span>, ...]
+command = ["claude", <span class="danger">"--permission-mode", "bypassPermissions"</span>, ...]
+
+<span class="comment"># O que deveria existir:</span>
+command = ["gemini", <span class="ok">"--approval-mode", "suggest"</span>, ...]
+<span class="comment"># claude: sem flag de bypass, modo padrão com confirmação</span>
+    </div>
+
+    <blockquote>O modelo não gera código inseguro por malícia. Ele gera código inseguro porque segurança é uma restrição que não aparece no prompt quando você está no modo "vibe".</blockquote>
+
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ═══════════════ POR QUE ═══════════════ -->
+<section>
+  <div class="container">
+
+    <h2>Por que isso acontece</h2>
+
+    <p>Depois de analisar os 3 relatórios completos da auditoria — resumo executivo, remediações técnicas detalhadas e boas práticas por domínio — três padrões emergem sobre como e por que os LLMs produzem código inseguro de forma sistemática:</p>
+
+    <div class="timeline">
+
+      <div class="timeline-item">
+        <div class="time">Padrão 1</div>
+        <p><strong>Otimização pelo caminho feliz.</strong> LLMs são treinados em uma distribuição massiva de código onde a maioria dos exemplos é funcional, não segura. Um <code>app.add_middleware(CORSMiddleware, allow_origins=["*"])</code> aparece em milhares de tutoriais. É o caminho mais provável. O modelo converge para ele não porque é correto, mas porque é estatisticamente dominante.</p>
+      </div>
+
+      <div class="timeline-item">
+        <div class="time">Padrão 2</div>
+        <p><strong>Ausência de contexto de ameaça.</strong> Quando você diz "crie um endpoint para listar arquivos de um diretório", o modelo não tem um modelo de ameaça. Ele não sabe que esse endpoint será exposto em rede. Ele não sabe que o input do usuário pode conter <code>../../etc/passwd</code>. Ele produz exatamente o que foi pedido — e nada do que deveria ter sido inferido.</p>
+      </div>
+
+      <div class="timeline-item">
+        <div class="time">Padrão 3</div>
+        <p><strong>Segurança como requisito não-funcional invisível.</strong> Autenticação, autorização, rate limiting, sanitização de logs, TTL de sessão, RBAC, CSP headers — nenhum desses aparece organicamente quando o prompt é orientado a funcionalidade. São requisitos transversais que exigem <em>decisão arquitetural deliberada</em>. E deliberação é exatamente o que o vibe coding elimina.</p>
+      </div>
+
+    </div>
+
+    <div class="callout yellow">
+      <strong>O paradoxo do vibe coding:</strong>
+      Quanto mais fluida e produtiva a experiência de geração parece, mais invisíveis ficam as lacunas de segurança. A velocidade cria a ilusão de completude.
+    </div>
+
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ═══════════════ ESCALA ═══════════════ -->
+<section>
+  <div class="container">
+
+    <h2>A escala do problema</h2>
+
+    <p>O ESAA-Supervisor não é um toy project. É um sistema com backend Python multirota, frontend React com roteamento, state management baseado em event sourcing, adaptadores para 3 CLIs distintos, streaming SSE em tempo real, sistema de chat persistente e verificação de integridade criptográfica. O documento de remediação lista <strong>24 vulnerabilidades</strong> que exigem correção:</p>
+
+    <div class="counter-strip">
+      <div class="counter-item">
+        <div class="num red">9</div>
+        <div class="label">CRITICAL</div>
+      </div>
+      <div class="counter-item">
+        <div class="num yellow">15</div>
+        <div class="label">HIGH</div>
+      </div>
+      <div class="counter-item">
+        <div class="num blue">3</div>
+        <div class="label">Sprints de<br>remediação</div>
+      </div>
+      <div class="counter-item">
+        <div class="num" style="color:var(--purple)">12</div>
+        <div class="label">Domínios<br>afetados</div>
+      </div>
+    </div>
+
+    <p>A remediação planejada exige <strong>3 sprints</strong> totalizando ~61.5 horas de desenvolvimento. O Sprint 1 sozinho — focado em bloqueadores de produção como CORS, auth, sandboxing de paths e remoção dos modos bypass — demanda 14 horas. E isso para um sistema que "já funciona".</p>
+
+    <p>O relatório de boas práticas mapeou cada vulnerabilidade contra referências formais: <strong>OWASP Top 10:2021</strong>, <strong>OWASP ASVS 5.0</strong>, <strong>CIS Controls v8.1</strong>, <strong>NIST CSF 2.0</strong> e <strong>NIST SP 800-53 Rev. 5</strong>. Não são opiniões. São padrões da indústria que existem justamente porque esses erros são recorrentes — e que nenhum modelo, em nenhum momento, citou ou seguiu proativamente.</p>
+
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ═══════════════ LIÇÕES ═══════════════ -->
+<section>
+  <div class="container">
+
+    <h2>O que isso significa para quem usa IA para codificar</h2>
+
+    <p>Este experimento não é um argumento contra o uso de IA para gerar código. Os 5 modelos são extraordinários em produtividade, na qualidade do scaffold inicial, na resolução de problemas pontuais e na velocidade de prototipação. O argumento é contra a <strong>confiança cega</strong>.</p>
+
+    <div class="callout green">
+      <strong>Vibe coding funciona — para protótipos descartáveis.</strong>
+      Para qualquer sistema que persista dados, aceite input externo, execute processos ou rode em rede, a revisão de segurança humana não é opcional. É o mínimo.
+    </div>
+
+    <h3>Recomendações práticas</h3>
+
+    <div class="callout purple">
+      <strong>1. Inclua segurança no prompt, não depois dele.</strong>
+      Se o modelo não recebeu um modelo de ameaça, ele não vai gerar defesas. "Crie um endpoint que lista arquivos de um diretório, restrito ao diretório /srv/data, com autenticação JWT e validação de path traversal" produz um resultado radicalmente diferente de "crie um endpoint que lista arquivos".
+    </div>
+
+    <div class="callout purple">
+      <strong>2. Audite com o mesmo rigor com que você auditaria código humano.</strong>
+      Código gerado por IA não merece um passe livre. Ele precisa de code review, checklist de segurança, SAST, secrets scanning e, idealmente, DAST em staging. O fato de vir de um modelo frontier não torna o output mais confiável — na verdade, a fluência do output pode tornar as falhas mais difíceis de detectar.
+    </div>
+
+    <div class="callout purple">
+      <strong>3. Trate os modos de execução do modelo como superfície de ataque.</strong>
+      <code>--approval-mode yolo</code>, <code>bypassPermissions</code>, <code>CORS: *</code> — os modelos gravitam para a configuração de menor fricção. Cada flag de conveniência é uma decisão de segurança que precisa ser revista.
+    </div>
+
+    <div class="callout purple">
+      <strong>4. Segurança é arquitetura, não feature.</strong>
+      Não dá para "adicionar segurança depois" a um sistema cujo design não previu autenticação, autorização ou isolamento. Os 61.5h de remediação do ESAA-Supervisor não são refatoração — são reconstrução de fundações. O custo de ignorar segurança no design inicial é sempre pago com juros.
+    </div>
+
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ═══════════════ CONCLUSÃO ═══════════════ -->
+<section>
+  <div class="container">
+
+    <h2>O score de 19.5 não é sobre o modelo — é sobre o processo</h2>
+
+    <p>Nenhum dos 5 modelos que usei é "ruim em segurança". Todos são capazes de gerar código seguro quando instruídos explicitamente para isso. O problema não está no modelo. Está no fluxo que elimina a fricção deliberada — aquela pausa onde um engenheiro pergunta "e se alguém enviar um path malicioso?", "e se o token não expirar?", "e se o CORS estiver aberto?".</p>
+
+    <p><strong>Vibe coding otimiza para velocidade. Segurança exige deliberação.</strong> As duas coisas são fundamentalmente incompatíveis quando aplicadas sem supervisão.</p>
+
+    <p>O ESAA-Supervisor funciona perfeitamente. 18/18 tasks entregues. Interface responsiva. Agentes executando. Chat persistente. E, por trás de tudo isso, uma API completamente aberta, endpoints sem autenticação, filesystem navegável por qualquer ator na rede, prompts sem proteção contra injeção e agentes executando com permissões totais.</p>
+
+    <blockquote>O código que funciona e o código que é seguro são dois conjuntos que se sobrepõem muito menos do que gostaríamos de admitir.</blockquote>
+
+    <p>Se você está usando IA para gerar código — e deveria estar, porque a produtividade é real — lembre-se: <strong>o modelo entrega o que você pede. Segurança é o que você precisa pedir explicitamente.</strong></p>
+
+    <p class="muted" style="margin-top: 3rem; font-size: 0.9rem;">Os três relatórios completos da auditoria — resumo executivo, remediações técnicas e boas práticas por domínio — estão disponíveis como material de referência. O sistema ESAA-Supervisor e seu framework foram desenvolvidos como parte de pesquisa em orquestração de agentes de IA na Must University, Brasil.</p>
+
+  </div>
+</section>
+
+<!-- ═══════════════ FOOTER ═══════════════ -->
+<footer class="footer">
+  <div class="author">Elzo Brito</div>
+  <p>Pesquisador · Must University · Brasil</p>
+  <p style="margin-top:0.8rem; font-size:0.75rem; color:var(--text-muted)">Março 2026 · Dados extraídos dos relatórios SEC-040, SEC-041, SEC-042 do ESAA-Supervisor</p>
+</footer>
+
+</body>
+</html>
