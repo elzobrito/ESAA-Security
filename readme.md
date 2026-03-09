@@ -622,7 +622,7 @@ The technical remediations document organizes fixes into three sprints:
 
 All findings were mapped against **OWASP Top 10:2021**, **OWASP ASVS 5.0**, **CIS Controls v8.1**, **NIST CSF 2.0**, and **NIST SP 800-53 Rev. 5**.
 
-> **Blog post:** [19.5/100 — O Custo Real do Vibe Coding](reports/blogpost/vibecoding-security-blogpost.html) — a detailed narrative exploring why LLMs produce insecure code by default and what practitioners should do about it.
+> **Blog post:** [19.5/100 — O Custo Real do Vibe Coding](https://x.com/elzobrito/status/2030732917648052234?s=20) — a detailed narrative exploring why LLMs produce insecure code by default and what practitioners should do about it.
 
 ---
 
