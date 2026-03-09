@@ -360,9 +360,9 @@ Security-specific guardrails enforce audit quality:
 
 ---
 
-## Verification — `esaa verify`
+## Verification Protocol
 
-ESAA-Security inherits the full [ESAA verification protocol](https://arxiv.org/abs/2602.23193). The event store is the source of truth; the read-model is a deterministic projection verified through replay and SHA-256 hashing:
+ESAA-Security inherits the full [ESAA verification protocol](https://arxiv.org/abs/2602.23193). The event store is the source of truth; the read-model is a deterministic projection verified through replay and SHA-256 hashing. The agent or operator can verify integrity at any point by replaying the event log and comparing the computed hash against the stored projection hash:
 
 ```python
 def esaa_verify(events, roadmap_json):
@@ -472,48 +472,70 @@ The 16 domains map well to OWASP Top 10, ASVS Level 1, and partially Level 2. Th
 
 ### Prerequisites
 
-- Python 3.12+
-- An LLM with structured output support (e.g., Claude Code, GPT, Gemini)
-- Access to the target repository
+- At least one authenticated agent CLI installed locally:
+  - [Codex](https://github.com/openai/codex) (OpenAI)
+  - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (Anthropic)
+  - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (Google)
+- Access to the target repository to be audited
 
 ### Run an Audit
 
-1. Clone the repository:
+ESAA-Security does not require a dedicated CLI. The audit is executed by an LLM agent (Codex, Claude Code, or Gemini CLI) operating inside the project directory. The agent reads the initialization file, follows the ESAA workflow contracts, and executes tasks sequentially through the `claim → complete → review` cycle.
+
+1. Clone the repository and set up the target:
    ```bash
    git clone https://github.com/elzobrito/esaa-security.git
    cd esaa-security
    ```
 
-2. Configure the input contract:
-   ```bash
-   # Set the target repository path
-   export AUDIT_REPO_PATH=/path/to/target/repo
-
-   # Optional: set live endpoint for hybrid checks
-   export AUDIT_ENDPOINT_URL=http://localhost:3000
+2. Configure the target repository in `.roadmap/init.yaml`:
+   ```yaml
+   # .roadmap/init.yaml — point to the repository under audit
+   repo_path: /path/to/target/repo
+   # Optional: live endpoint for hybrid checks (headers, CORS, rate limiting)
+   endpoint_base_url: http://localhost:3000
    ```
 
-3. Inspect the initial state:
+3. Open the project in your agent CLI and instruct it to begin:
    ```bash
-   cat .roadmap/activity.jsonl    # Initialization events
-   cat .roadmap/roadmap.json      # 26 tasks in todo state; verify_status: unknown
+   # Example with Codex
+   codex
+
+   # Example with Claude Code
+   claude
+
+   # Example with Gemini CLI
+   gemini
    ```
 
-4. Run the audit orchestrator:
-   ```bash
-   esaa run --run-id RUN-SEC-0001 --config playbooks/playbooks.security.json
+   Then instruct the agent:
+   ```
+   Read .roadmap/init.yaml and begin executing the audit roadmap.
+   Follow the ESAA workflow: claim each task before working,
+   complete with structured results and verification evidence.
    ```
 
-5. Verify the final state:
+   The agent will:
+   - Read `init.yaml` for project configuration and target path
+   - Read `roadmap.json` to identify eligible tasks (status `todo`, dependencies satisfied)
+   - Claim the next eligible task
+   - Execute the corresponding playbook from `playbooks/playbooks.security.json`
+   - Emit structured results (check status, severity, evidence, remediation)
+   - Complete the task with verification checks
+   - Proceed to the next eligible task until all phases are done
+
+4. Monitor progress:
    ```bash
-   esaa verify --strict
-   # Expected: verify_status=ok
+   cat .roadmap/roadmap.json      # Current audit state — tasks, statuses, indexes
+   cat .roadmap/activity.jsonl    # Append-only event log — every claim, completion, finding
    ```
 
-6. Read the report:
+5. Read the final report (generated in Phase 4):
    ```bash
    cat reports/final/security-audit-report.md
-   cat reports/phase4/executive-summary.md    # 1-page summary with score
+   cat reports/phase4/executive-summary.md    # 1-page summary with security score
+   cat reports/phase4/technical-remediations.md
+   cat reports/phase4/best-practices.md
    ```
 
 ---
