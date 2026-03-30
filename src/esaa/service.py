@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -21,9 +22,20 @@ from .store import (
     save_lessons,
     save_roadmap,
 )
-from .utils import ensure_parent, normalize_rel_path, utc_now_iso
+from .utils import assert_within_root, ensure_parent, normalize_rel_path, utc_now_iso
 from .validator import validate_agent_output
 
+# ---------------------------------------------------------------------------
+# actor validation – prevent log-injection / identifier spoofing (OWASP A03)
+# ---------------------------------------------------------------------------
+_ACTOR_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,64}$")
+
+def _assert_safe_actor(actor: str) -> None:
+    if not _ACTOR_RE.match(actor):
+        raise ESAAError(
+            "INVALID_ACTOR",
+            f"actor contains illegal characters or is too long: {actor!r}",
+        )
 
 class ESAAService:
     def __init__(self, root: Path, adapter: AgentAdapter | None = None) -> None:
@@ -178,12 +190,8 @@ class ESAAService:
         }
 
     def submit(self, agent_output: dict[str, Any], actor: str, dry_run: bool = False) -> dict[str, Any]:
-        """Validate and apply a single agent.result submitted externally.
+        _assert_safe_actor(actor)
 
-        This is the primary interface for real LLM agents (Claude Code,
-        Codex, Gemini Code, etc.) that read .roadmap/ and produce a
-        structured JSON output following agent_result.schema.json.
-        """
         events = parse_event_store(self.root)
         contract = load_agent_contract(self.root)
         schema = load_agent_result_schema(self.root)
@@ -232,9 +240,11 @@ class ESAAService:
 
                 if not dry_run:
                     for item in file_updates:
-                        path = self.root / normalize_rel_path(item["path"])
-                        ensure_parent(path)
-                        path.write_text(item["content"], encoding="utf-8")
+                        rel = normalize_rel_path(item["path"])
+                        target = self.root / rel
+                        assert_within_root(self.root, target)
+                        ensure_parent(target)
+                        target.write_text(item["content"], encoding="utf-8")
                         files_written += 1
 
             if validated_event["action"] == "issue.report":
@@ -247,7 +257,6 @@ class ESAAService:
         except ESAAError:
             raise
 
-        # Verify after applying
         all_events = events + new_events
         verify_start = make_event(
             next_event_seq(all_events),
@@ -260,7 +269,6 @@ class ESAAService:
 
         final_roadmap, final_issues, final_lessons = materialize(all_events)
 
-        # Check if all tasks done -> run.end
         if all_tasks_done(final_roadmap["tasks"]) and final_roadmap["meta"]["run"]["status"] != "success":
             run_end = make_event(
                 next_event_seq(all_events),
@@ -301,13 +309,6 @@ class ESAAService:
         }
 
     def process(self, dry_run: bool = False) -> dict[str, Any]:
-        """Process all pending agent.result files from .roadmap/inbox/.
-
-        Each file must be named {task_id}.json or {actor}__{task_id}.json
-        and contain a valid agent_result.schema.json payload.
-        Accepted files are moved to .roadmap/inbox/done/.
-        Rejected files are moved to .roadmap/inbox/rejected/.
-        """
         inbox = self.root / ".roadmap" / "inbox"
         if not inbox.exists():
             return {"processed": 0, "accepted": 0, "rejected": 0, "results": []}
@@ -323,13 +324,14 @@ class ESAAService:
         rejected = 0
 
         for filepath in files:
-            name = filepath.stem  # e.g., "T-1000" or "agent-spec__T-1000"
+            name = filepath.stem
             if "__" in name:
                 actor, _task_id = name.split("__", 1)
             else:
                 actor = "agent-external"
 
             try:
+                _assert_safe_actor(actor)
                 agent_output = json.loads(filepath.read_text(encoding="utf-8"))
                 result = self.submit(agent_output, actor=actor, dry_run=dry_run)
                 results.append(result)
@@ -406,9 +408,11 @@ class ESAAService:
 
                     if not dry_run:
                         for item in file_updates:
-                            path = self.root / normalize_rel_path(item["path"])
-                            ensure_parent(path)
-                            path.write_text(item["content"], encoding="utf-8")
+                            rel = normalize_rel_path(item["path"])
+                            target = self.root / rel
+                            assert_within_root(self.root, target)
+                            ensure_parent(target)
+                            target.write_text(item["content"], encoding="utf-8")
                             files_written += 1
 
                 if activity_event["action"] == "issue.report":
@@ -496,124 +500,4 @@ class ESAAService:
             "verify_status": final_roadmap["meta"]["run"]["verify_status"],
             "projection_hash_sha256": final_roadmap["meta"]["run"]["projection_hash_sha256"],
         }
-
-
-def make_event(event_seq: int, actor: str, action: str, payload: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "event_id": f"EV-{event_seq:08d}",
-        "event_seq": event_seq,
-        "ts": utc_now_iso(),
-        "actor": actor,
-        "action": action,
-        "payload": payload,
-    }
-
-
-def seed_tasks() -> list[dict[str, Any]]:
-    return [
-        {
-            "task_id": "T-1000",
-            "task_kind": "spec",
-            "title": "Create initial ESAA spec document",
-            "description": "Produce the initial specification artifact for the ESAA core baseline.",
-            "depends_on": [],
-            "targets": ["spec-core"],
-            "outputs": {"files": ["docs/spec/T-1000.md"]},
-        },
-        {
-            "task_id": "T-1010",
-            "task_kind": "impl",
-            "title": "Create initial implementation artifact",
-            "description": "Produce the initial implementation artifact that follows the approved specification.",
-            "depends_on": ["T-1000"],
-            "targets": ["impl-core"],
-            "outputs": {"files": ["src/T-1010.txt"]},
-        },
-        {
-            "task_id": "T-1020",
-            "task_kind": "qa",
-            "title": "Create initial QA report",
-            "description": "Produce the initial QA evidence artifact validating the implementation baseline.",
-            "depends_on": ["T-1010"],
-            "targets": ["qa-core"],
-            "outputs": {"files": ["docs/qa/T-1020.md"]},
-        },
-    ]
-
-
-def all_tasks_done(tasks: list[dict[str, Any]]) -> bool:
-    return bool(tasks) and all(task["status"] == "done" for task in tasks)
-
-
-def select_next_task(tasks: list[dict[str, Any]]) -> dict[str, Any] | None:
-    by_id = {task["task_id"]: task for task in tasks}
-
-    for status in ("review", "in_progress"):
-        candidates = sorted([task for task in tasks if task["status"] == status], key=lambda item: item["task_id"])
-        if candidates:
-            return candidates[0]
-
-    todo = sorted([task for task in tasks if task["status"] == "todo"], key=lambda item: item["task_id"])
-    for task in todo:
-        deps = task.get("depends_on", [])
-        if all(by_id[dep]["status"] == "done" for dep in deps if dep in by_id):
-            return task
-    return None
-
-
-def build_dispatch_context(roadmap: dict[str, Any], task: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any]:
-    boundaries = contract["boundaries"]["by_task_kind"][task["task_kind"]]
-    return {
-        "task": task,
-        "boundaries": {
-            "read": boundaries.get("read", []),
-            "write": boundaries.get("write", []),
-        },
-        "context_pack": {
-            "run": roadmap["meta"]["run"],
-            "project": roadmap["project"],
-        },
-        "correlation": {
-            "master_correlation_id": roadmap["meta"].get("master_correlation_id"),
-            "task_id": task["task_id"],
-        },
-    }
-
-
-def build_hotfix_event(current_events: list[dict[str, Any]], issue_payload: dict[str, Any]) -> dict[str, Any] | None:
-    issue_id = issue_payload.get("issue_id")
-    fixes = issue_payload.get("fixes")
-    if not issue_id or not fixes:
-        return None
-
-    hotfix_task_id = f"HF-{issue_id}"
-    for event in current_events:
-        if event["action"] == "hotfix.create" and event["payload"].get("task_id") == hotfix_task_id:
-            return None
-
-    seq = next_event_seq(current_events)
-    return make_event(
-        seq,
-        actor="orchestrator",
-        action="hotfix.create",
-        payload={
-            "task_id": hotfix_task_id,
-            "task_kind": "impl",
-            "title": f"Hotfix for {issue_id}",
-            "description": f"Apply a minimal hotfix to resolve issue {issue_id} without regressing immutable done tasks.",
-            "depends_on": [],
-            "targets": [issue_id],
-            "outputs": {"files": [f"src/hotfix/{hotfix_task_id}.txt"]},
-            "is_hotfix": True,
-            "issue_id": issue_id,
-            "fixes": fixes,
-            "scope_patch": issue_payload.get("scope_patch", ["src/hotfix/"]),
-            "required_verification": issue_payload.get("required_verification", ["unit", "regression"]),
-            "baseline_id": issue_payload.get("affected", {}).get("baseline_id", "B-000"),
-        },
-    )
-
-
-def dumps_pretty(payload: dict[str, Any]) -> str:
-    return json.dumps(payload, ensure_ascii=False, indent=2)
+}
