@@ -36,3 +36,12 @@ VERIFY_STATUS = {"unknown", "ok", "mismatch", "corrupted"}
 TASK_STATUS = {"todo", "in_progress", "review", "done"}
 TASK_KINDS = {"spec", "impl", "qa"}
 
+# --- Security constants ---
+# Actors that may not be claimed by external callers
+RESERVED_ACTORS: frozenset[str] = frozenset({"orchestrator"})
+
+# Maximum accepted size for inbox files and stdin input (10 MB)
+MAX_INBOX_FILE_BYTES: int = 10 * 1024 * 1024
+
+# Maximum number of steps per run() call
+MAX_STEPS: int = 1000
