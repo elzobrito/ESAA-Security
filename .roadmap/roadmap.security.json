@@ -344,7 +344,7 @@
         "Bancos de dados, caches e message brokers listados com versão.",
         "Serviços cloud e SaaS integrados documentados.",
         "Pre-check de existência de report-template.security.json e REPORT_TEMPLATE.md no repositório.",
-        "SO, shell, utilitários básicos e ferramentas opcionais detectadas registrados em tool-capabilities.json com status available/unavailable/not_applicable."
+        "SO, shell, utilitários básicos e ferramentas opcionais detectadas registrados em tool-capabilities.json com status available/unavailable/not_applicable, validando contra .roadmap/tool-capabilities.schema.json."
       ],
       "execution_notes": "Abrir cada manifest e ler seção de dependências. Para Docker, inspecionar base images e versões fixas vs latest. Se pre-check dos templates falhar, emitir warning mas não bloquear — será tratado em SEC-043. Produzir também reports/phase1/tool-capabilities.json detectando sistema operacional, shell atual, utilitários básicos e ferramentas opcionais recomendadas pelo roadmap.",
       "immutability": {

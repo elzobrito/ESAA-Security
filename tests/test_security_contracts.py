@@ -77,6 +77,14 @@ def test_optional_tooling_contract_is_well_formed(repo_root: Path) -> None:
     assert checks_with_tooling >= 10
 
 
+def test_tool_capabilities_schema_file_exists(repo_root: Path) -> None:
+    schema_path = repo_root / ".roadmap/tool-capabilities.schema.json"
+    assert schema_path.is_file()
+    schema = _load_json(schema_path)
+    assert schema["title"] == "ESAA Security Tool Capabilities Artifact"
+    assert schema["properties"]["optional_tools"]["items"]["$ref"] == "#/$defs/capability_entry"
+
+
 def test_phase1_tool_capabilities_are_wired_into_phase2(repo_root: Path) -> None:
     roadmap = _load_json(repo_root / ".roadmap/roadmap.security.json")
     playbooks = _load_json(repo_root / ".roadmap/playbooks.security.json")
@@ -94,6 +102,10 @@ def test_phase1_tool_capabilities_are_wired_into_phase2(repo_root: Path) -> None
     assert (
         playbooks["execution_policy"]["tooling_policy"]["detection_artifact"]
         == "reports/phase1/tool-capabilities.json"
+    )
+    assert (
+        playbooks["execution_policy"]["tooling_policy"]["detection_schema"]
+        == ".roadmap/tool-capabilities.schema.json"
     )
 
 

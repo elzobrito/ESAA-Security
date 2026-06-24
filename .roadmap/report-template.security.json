@@ -556,7 +556,7 @@
       "description": "Dados complementares para auditabilidade.",
       "fields": {
         "full_check_results": {
-          "description": "Tabela completa de todos os 95 checks com status — inclui pass e not_applicable, não apenas findings.",
+          "description": "Tabela completa de todos os 108 checks com status — inclui pass e not_applicable, não apenas findings.",
           "columns": [
             "check_id",
             "domain",

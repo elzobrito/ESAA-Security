@@ -188,6 +188,7 @@
     "false_positive_handling": "Todo check HIGH ou CRITICAL deve declarar false_positive_guidance explícito, exceto se houver exceção formal documentada. Findings confidence=low sem corroboração devem ser reclassificados como INFO em SEC-031. Achados heurísticos severos sem evidência direta ou confirmação por ferramenta/runtime não devem subir para confidence=high.",
     "tooling_policy": {
       "detection_artifact": "reports/phase1/tool-capabilities.json",
+      "detection_schema": ".roadmap/tool-capabilities.schema.json",
       "capability_states": [
         "available",
         "unavailable",

@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esaa.local/schemas/tool-capabilities.schema.json",
+  "title": "ESAA Security Tool Capabilities Artifact",
+  "description": "Phase 1 reconnaissance artifact produced by SEC-001. Records the local execution environment and optional AppSec tooling availability for deterministic fallback decisions in phase 2.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_version",
+    "generated_at",
+    "run_id",
+    "environment",
+    "utilities",
+    "optional_tools"
+  ],
+  "properties": {
+    "artifact_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "run_id": {
+      "type": ["string", "null"]
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "shell"],
+      "properties": {
+        "os": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Operating system family detected in the local audit environment."
+        },
+        "os_version": {
+          "type": ["string", "null"]
+        },
+        "shell": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Primary shell available to the agent for static inspection commands."
+        },
+        "repo_path": {
+          "type": ["string", "null"]
+        },
+        "notes": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "utilities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/capability_entry"
+      },
+      "description": "Basic shell utilities required for static-first execution."
+    },
+    "optional_tools": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/capability_entry"
+      },
+      "description": "Optional local AppSec tools that may deepen confirmation when available."
+    },
+    "capability_classes_detected": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "secrets_scanners",
+          "dependency_vulnerability_scanners",
+          "sast_pattern_scanners",
+          "container_iac_scanners"
+        ]
+      },
+      "uniqueItems": true
+    }
+  },
+  "$defs": {
+    "capability_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "status"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": ["available", "unavailable", "not_applicable"]
+        },
+        "version": {
+          "type": ["string", "null"]
+        },
+        "capability_class": {
+          "type": ["string", "null"],
+          "enum": [
+            "secrets_scanners",
+            "dependency_vulnerability_scanners",
+            "sast_pattern_scanners",
+            "container_iac_scanners",
+            null
+          ]
+        },
+        "detection_method": {
+          "type": ["string", "null"],
+          "description": "How availability was determined, for example command -v, --version, or manual inspection."
+        },
+        "notes": {
+          "type": ["string", "null"]
+        }
+      }
+    }
+  }
+}

@@ -220,7 +220,7 @@ Verificação: `${verification_command}`
 
 ## Apêndice A — Resultados Completos
 
-<!-- Tabela de todos os 95 checks, incluindo pass e not_applicable -->
+<!-- Tabela de todos os 108 checks, incluindo pass e not_applicable -->
 
 | Check | Domínio | Nome | Status | Severidade |
 |---|---|---|---|---|
