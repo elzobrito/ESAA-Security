@@ -1,0 +1,7 @@
+plugin:
+  id: security-audit
+  version: 0.1.0
+  name: Security Audit Plugin
+  entrypoint: dist/index.js
+  roadmap: roadmap.json
+  api_version: esaa-core-v0.1

@@ -48,6 +48,7 @@ def test_boundaries_reject_spec_write_into_src(contract_bundle: Path) -> None:
         "activity_event": {
             "action": "complete",
             "task_id": "T-SPEC",
+            "prior_status": "in_progress",
             "verification": {"checks": ["ok"]},
         },
         "file_updates": [{"path": "src/not-allowed.txt", "content": "x"}],

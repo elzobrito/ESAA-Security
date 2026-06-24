@@ -18,7 +18,7 @@ Security audits performed by LLM agents inherit all the structural problems of a
 | Problem | How ESAA-Security solves it |
 |---|---|
 | **Hallucinated vulnerabilities** — agents invent findings that don't exist | Guardrails require technical evidence for every finding; playbooks define objective pass/fail criteria |
-| **Inconsistent coverage** — agents skip domains or checks arbitrarily | 95 executable checks across 16 domains with dependency-ordered execution |
+| **Inconsistent coverage** — agents skip domains or checks arbitrarily | 108 executable checks across 17 domains with dependency-ordered, parallel-grouped execution |
 | **No audit trail** — impossible to verify what was actually tested | Every check result is an event in the append-only log; the report is a verifiable projection |
 | **Non-reproducible results** — same system yields different findings each run | Deterministic replay + SHA-256 verification; same events always produce the same report |
 
@@ -32,7 +32,7 @@ ESAA-Security is built on three distinct layers, each with its own paper and con
 |---|---|---|
 | **ESAA** (governance kernel) | The methodology: append-only event store as source of truth, deterministic orchestrator that validates and persists agent intentions, boundary contracts per task kind, SHA-256 replay verification, "done" immutability, purified views for context injection. Validated with heterogeneous multi-agent orchestration (Claude Sonnet 4.6, Codex GPT-5, Gemini 3 Pro, Claude Opus 4.6). | [arXiv:2602.23193](https://arxiv.org/abs/2602.23193) |
 | **PARCER** (operational contract) | Agent-level governance: declarative YAML contracts that enforce decision hygiene (7 procedures), adaptive token budgeting, context fallbacks (Map-Reduce/RAG), structured validation with hard gates, and OpenTelemetry observability. The PARCER profiles (`PARCER_PROFILE.agent-spec.yaml`, `agent-impl.yaml`, `agent-qa.yaml`) bind each agent role to its tool budget, verification requirements, and escalation rules. | [arXiv:2603.00856](https://arxiv.org/abs/2603.00856) |
-| **ESAA-Security** (domain specialization) | The security audit pipeline: 4 phases (reconnaissance → domain audit → risk classification → reporting), 26 tasks, 16 security domains, 95 executable checks, structured findings with severity classification, risk matrices, remediation guidance, and executive reporting. The final report is not a free-form narrative — it is a projection of governed audit state. | [arXiv:2603.06365](https://arxiv.org/abs/2603.06365) |
+| **ESAA-Security** (domain specialization) | The security audit pipeline: 4 phases (reconnaissance → domain audit → risk classification → reporting), 27 tasks, 17 security domains, 108 executable checks, static-first execution over local source code and versioned configuration, confidence-aware findings, deterministic scoring, risk matrices, remediation guidance, and executive reporting. Runtime probing is opt-in and confirmatory; the final report is a projection of governed audit state. | [arXiv:2603.06365](https://arxiv.org/abs/2603.06365) |
 
 The key insight is that security review should not be modeled as a prompting problem but as a **governed execution problem**. ESAA provides the mechanism (how state evolves). PARCER provides the agent discipline (how agents behave). ESAA-Security provides the domain semantics (what gets audited and how findings are structured).
 
@@ -62,34 +62,35 @@ The key insight is that security review should not be modeled as a prompting pro
 - **Agents** execute playbook checks and emit structured results (`agent_result`, `issue.report`) — they **cannot** write the report, mutate state, or append events directly.
 - **Orchestrator** validates results against JSON Schema + boundary contracts, persists events, and projects the read-model.
 - **Event Store** (`activity.jsonl`) records every check execution, finding, and classification as an immutable fact.
-- **Read-Model** (`roadmap.json`) tracks audit progress — which checks passed, which failed, which domains are complete.
+- **Read-Model** (`.roadmap/roadmap.json`) tracks audit progress — which checks passed, which failed, which domains are complete. The versioned execution contract lives in `.roadmap/roadmap.security.json`.
 
 ---
 
 ## Security Domains
 
-ESAA-Security covers 16 security domains derived from the PARCER Security Auditor framework:
+ESAA-Security currently covers 17 security domains derived from the PARCER Security Auditor framework, executed in `static_local_code` mode by default:
 
 | Domain | Checks | Priority | Playbook IDs |
 |---|---|---|---|
 | Secrets & Configuration | 8 | critical | SC-001 → SC-008 |
-| Authentication | 8 | critical | AU-001 → AU-008 |
-| Authorization | 6 | critical | AZ-001 → AZ-006 |
-| Input Validation | 7 | critical | IV-001 → IV-007 |
-| Data Security | 5 | critical | DA-001 → DA-005 |
 | Dependencies & Supply Chain | 6 | high | DS-001 → DS-006 |
-| API Security | 7 | high | AP-001 → AP-007 |
+| Authentication | 9 | critical | AU-001 → AU-009 |
+| Authorization | 6 | critical | AZ-001 → AZ-006 |
+| API Security | 9 | high | AP-001 → AP-009 |
+| Input Validation | 10 | critical | IV-001 → IV-010 |
 | File Upload | 6 | high | FU-001 → FU-006 |
 | Session Security | 6 | high | SS-001 → SS-006 |
 | Cryptography | 5 | high | CR-001 → CR-005 |
-| Infrastructure | 6 | high | IF-001 → IF-006 |
-| AI/LLM Security | 5 | high | AI-001 → AI-005 |
 | Security Headers | 5 | medium | SH-001 → SH-005 |
 | Logging & Monitoring | 5 | medium | LM-001 → LM-005 |
+| Infrastructure | 7 | high | IF-001 → IF-007 |
 | DevSecOps | 6 | medium | DO-001 → DO-006 |
+| Data Security | 5 | critical | DA-001 → DA-005 |
 | Frontend Security | 4 | medium | FE-001 → FE-004 |
+| AI/LLM Security | 7 | high | AI-001 → AI-007 |
+| Business Logic & Anti-Automation | 4 | high | BL-001 → BL-004 |
 
-**Total:** 95 executable checks across 26 tasks in 4 phases.
+**Total:** 108 executable checks across 27 tasks in 4 phases.
 
 ---
 
@@ -98,7 +99,8 @@ ESAA-Security covers 16 security domains derived from the PARCER Security Audito
 ```
 .roadmap/
 ├── activity.jsonl                              # Event store (append-only, source of truth)
-├── roadmap.json                                # Read-model: audit progress (derived, verifiable)
+├── roadmap.json                                # Runtime read-model: projected audit progress (derived, verifiable)
+├── roadmap.security.json                       # Versioned audit roadmap contract (v0.6.0)
 ├── issues.json                                 # Read-model: open/resolved audit issues
 ├── lessons.json                                # Read-model: learned constraints
 ├── snapshots/                                  # Integrity snapshots
@@ -110,23 +112,22 @@ ESAA-Security covers 16 security domains derived from the PARCER Security Audito
 ├── PROJECTION_SPEC.md                          # How events → state (pure function spec)
 │
 ├── agent_result.schema.json                    # JSON Schema: validates every agent output
-├── roadmap.schema.json                         # JSON Schema: validates roadmap.json (v0.4.0)
+├── roadmap.schema.json                         # JSON Schema: validates roadmap.json projection
 ├── issues.schema.json                          # JSON Schema: validates issues.json
 │
 ├── agents_swarm.yaml                           # Agent registry and role resolution
+├── playbooks.security.json                     # Agent-executable playbooks (108 checks, 17 domains, static-first)
+├── report-template.security.json               # Deterministic scoring and final report projection contract
 │
 ├── PARCER_PROFILE.agent-spec.yaml              # Profile: reconnaissance agent
 ├── PARCER_PROFILE.agent-impl.yaml              # Profile: audit execution agent
 ├── PARCER_PROFILE.agent-qa.yaml                # Profile: risk classification and reporting agent
 └── PARCER_PROFILE.orchestrator-runtime.yaml    # Profile: orchestrator runtime
 
-playbooks/
-├── playbooks.security.json                     # Agent-executable playbooks (95 checks, 16 domains)
-└── global_input_contract.json                  # Required/optional inputs for audit execution
-
 reports/
 ├── phase1/                                     # Reconnaissance outputs
 │   ├── tech-stack-inventory.md
+│   ├── tool-capabilities.json
 │   ├── architecture-map.md
 │   ├── data-flow-diagram.md
 │   └── attack-surface-inventory.md
@@ -158,7 +159,7 @@ Before any security check runs, the agent maps the terrain:
 
 | Task | Output |
 |---|---|
-| SEC-001: Identify tech stack | Languages, frameworks, databases, cloud services, dependency versions |
+| SEC-001: Identify tech stack | Languages, frameworks, databases, cloud services, dependency versions, and local tool capabilities |
 | SEC-002: Map architecture | Components, data flows, integration points, trust boundaries |
 | SEC-003: Enumerate attack surfaces | Endpoints, interfaces, uploads, websockets, external APIs |
 
@@ -166,12 +167,12 @@ These outputs feed every Phase 2 task via `depends_on`.
 
 ### Phase 2 — Audit Execution (`impl` tasks)
 
-The core audit: 16 tasks, one per security domain. Each task executes the corresponding playbook:
+The core audit: 17 tasks, one per security domain. Each task executes the corresponding playbook in static-first mode:
 
 ```
-Agent receives:  playbook (checks + agent_instructions) + reconnaissance outputs
-Agent executes:  grep/find/curl commands per check, applies pass/fail criteria
-Agent emits:     structured result per check (status, severity, evidence, remediation)
+Agent receives:  playbook (checks + contextual_note + agent_instructions) + reconnaissance outputs + tool-capabilities.json
+Agent executes:  grep/find/tool commands per check; optional local tooling only when available; runtime probes only when endpoint_base_url is provided
+Agent emits:     structured result per check (status, severity, confidence, evidence, remediation, cross_refs)
 ```
 
 Example — check IV-001 (SQL Injection) from the `input_validation` playbook:
@@ -182,11 +183,13 @@ Example — check IV-001 (SQL Injection) from the `input_validation` playbook:
   "name": "SQL injection",
   "status": "fail",
   "severity_if_fail": "CRITICAL",
+  "confidence": "high",
   "evidence": {
     "files": ["src/controllers/userController.js"],
     "lines": ["42: db.query(`SELECT * FROM users WHERE id = ${req.params.id}`)"],
     "description": "String interpolation in raw SQL query with unsanitized user input."
   },
+  "cross_refs": [],
   "remediation": "Use parameterized queries: db.query('SELECT * FROM users WHERE id = $1', [req.params.id])"
 }
 ```
@@ -214,16 +217,17 @@ Consolidates all Phase 2 findings into a prioritized risk matrix:
 
 ## Playbook Structure
 
-Each of the 16 playbooks in `playbooks.security.json` follows this structure:
+Each of the 17 playbooks in `.roadmap/playbooks.security.json` follows this structure:
 
 ```json
 {
   "task_ref": "SEC-015",
   "domain": "input_validation",
   "priority": "critical",
+  "contextual_note": "Static-first; heuristics require confidence-aware triage.",
   "input_requirements": {
     "required": ["repo_path"],
-    "optional": ["endpoint_base_url"]
+    "optional": ["endpoint_base_url", "tool_capabilities_path"]
   },
   "checks": [
     {
@@ -239,7 +243,15 @@ Each of the 16 playbooks in `playbooks.security.json` follows this structure:
         ],
         "pass_criteria": "ORM used consistently. Raw queries use parameterization. Zero concatenation of input in SQL.",
         "fail_criteria": "Any concatenation of user input in SQL string. Raw queries without parameterization.",
-        "false_positive_guidance": "ORM query builders that use parameterization internally are safe."
+        "false_positive_guidance": "ORM query builders that use parameterization internally are safe.",
+        "confidence_guidance": "High only with direct code proof or corroboration.",
+        "tooling": {
+          "preferred_tools": ["semgrep"],
+          "fallback_mode": "static_analysis",
+          "capability_requirement": "sast_pattern_scanners",
+          "evidence_requirements": ["tool_output", "code_snippet"],
+          "confidence_effect": "Tool confirmation can raise confidence; missing tool never turns the check into fail."
+        }
       },
       "remediation": "Use ORM or prepared statements. Never concatenate input in SQL."
     }
@@ -251,22 +263,24 @@ Each of the 16 playbooks in `playbooks.security.json` follows this structure:
 
 | Strategy | Count | Description |
 |---|---|---|
-| `static_analysis` | 77 | Grep/find patterns in source code and config files |
-| `hybrid` | 16 | Static analysis + live endpoint testing (when `endpoint_base_url` available) |
-| `tool_execution` | 2 | Run security tools (`npm audit`, `pip-audit`, etc.) |
+| `static_analysis` | 89 | Default mode: inspect source code and versioned configuration in the local repository |
+| `hybrid` | 17 | Static-first analysis with optional runtime confirmation when `endpoint_base_url` is explicitly provided |
+| `tool_execution` | 2 | Run local security tools (`npm audit`, `pip-audit`, etc.) against artifacts in the repository |
 
-Every check provides **objective pass/fail criteria** — the agent doesn't decide what counts as a vulnerability; the playbook defines it.
+Every check provides **objective pass/fail criteria**. The agent does not decide ad hoc what counts as a vulnerability; the playbook defines it, and heuristic checks are expected to express uncertainty through `confidence`, `confidence_guidance`, and `false_positive_guidance`.
+
+Checks may also declare an optional `tooling` block. This does not change the `static-first` posture: local scanners only deepen confirmation when they are actually available, and their absence must degrade deterministically to static analysis or `partial` without penalizing the score.
 
 ---
 
 ## Roadmap Schema Compliance
 
-The audit roadmap (`roadmap.json`) conforms to the ESAA v0.4.0 canonical schema:
+The versioned audit roadmap (`.roadmap/roadmap.security.json`) currently uses schema v0.6.0. The runtime projection consumed by the orchestrator remains `.roadmap/roadmap.json`:
 
 ```json
 {
   "meta": {
-    "schema_version": "0.4.0",
+    "schema_version": "0.6.0",
     "immutable_done": true,
     "run": {
       "run_id": "RUN-SEC-0001",
@@ -278,12 +292,13 @@ The audit roadmap (`roadmap.json`) conforms to the ESAA v0.4.0 canonical schema:
   },
   "project": {
     "name": "PARCER Security Audit",
-    "audit_scope": "Full-stack security audit covering 16 domains..."
+    "audit_scope": "Static-first security audit over local source code and versioned configuration covering 17 domains..."
   },
   "tasks": [ ... ],
   "indexes": {
-    "by_status": { "todo": 26, "in_progress": 0, "review": 0, "done": 0 },
-    "by_kind": { "spec": 5, "impl": 16, "qa": 5 }
+    "by_status": { "todo": 27, "in_progress": 0, "review": 0, "done": 0 },
+    "by_kind": { "spec": 5, "impl": 17, "qa": 5 },
+    "checks_total": 108
   }
 }
 ```
@@ -327,7 +342,7 @@ Applied to the security audit context:
 | Kind | Role in Audit | Read | Write |
 |---|---|---|---|
 | `spec` | Reconnaissance (Phase 1) | `.roadmap/**`, `docs/**` | `reports/phase1/**` |
-| `impl` | Audit execution (Phase 2) | `.roadmap/**`, `playbooks/**`, `reports/phase1/**` | `reports/phase2/**` |
+| `impl` | Audit execution (Phase 2) | `.roadmap/**`, `reports/phase1/**` | `reports/phase2/**` |
 | `qa` | Classification + report (Phase 3–4) | `.roadmap/**`, `reports/**` | `reports/phase3/**`, `reports/phase4/**`, `reports/final/**` |
 
 ### Runtime Policy
@@ -428,12 +443,26 @@ To execute an audit, the agent needs access to the target system. The global inp
 | Input | Required | Description |
 |---|---|---|
 | `repo_path` | **yes** | Absolute path to the repository under audit |
-| `endpoint_base_url` | no | Live application URL for hybrid checks (headers, CORS, rate limiting) |
+| `endpoint_base_url` | no | Optional, operator-provided runtime target for confirmatory hybrid checks. When absent, hybrid checks execute only their static portion and do not fail because of missing runtime |
+| `tool_capabilities_path` | no | Optional path to `reports/phase1/tool-capabilities.json`, used to decide whether optional local security tools are available |
 | `docs_path` | no | Path to technical documentation or architecture docs |
 | `infra_config_path` | no | Path to infrastructure configs (docker-compose, k8s, terraform) |
 | `ci_config_path` | no | Path to CI/CD configs (.github/workflows, .gitlab-ci.yml) |
+| `endpoints_inventory_path` | no | Path to `reports/phase1/endpoints-inventory.json` when reusing previously generated reconnaissance artifacts |
 
 Each playbook declares which inputs it requires. The orchestrator validates availability before dispatching.
+
+### Tooling Posture
+
+The roadmap is intentionally **static-first**. Optional tools improve corroboration, not eligibility to run the audit.
+
+| Class | Role |
+|---|---|
+| Required | Agent CLI, repository access, shell utilities needed for static inspection |
+| Optional | Local AppSec tools such as `gitleaks`, `semgrep`, `npm audit`, `pip-audit`, `osv-scanner`, `trivy` |
+| Not part of the default flow | Network scanners, active exploitation frameworks, intrusive DAST against uncontrolled targets |
+
+When optional tools are absent, the audit remains valid. The only effect is reduced confirmation depth for the checks that declared a `tooling` block.
 
 ---
 
@@ -464,7 +493,7 @@ ESAA-Security is calibrated for **internal audits at L1/L2 maturity**:
 | Regulatory compliance (LGPD) | Technical component — complement with process documentation |
 | Formal certification (ISO 27001, PCI-DSS) | Insufficient standalone — needs organizational controls and formal methodology |
 
-The 16 domains map well to OWASP Top 10, ASVS Level 1, and partially Level 2. The AI/LLM Security domain (AI-001 → AI-005) extends coverage to a category most traditional frameworks don't address.
+The 17 domains map well to OWASP Top 10, OWASP API Top 10, ASVS Level 1, and partially Level 2. The AI/LLM Security domain (AI-001 → AI-007) extends coverage to LLM-specific risks, while Business Logic & Anti-Automation (BL-001 → BL-004) adds explicit coverage for abuse of sensitive business flows (OWASP API6:2023).
 
 ---
 
@@ -478,9 +507,24 @@ The 16 domains map well to OWASP Top 10, ASVS Level 1, and partially Level 2. Th
   - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (Google)
 - Access to the target repository to be audited
 
+### Recommended Execution Environment
+
+ESAA-Security is designed to be portable, but it executes most reliably in POSIX-like environments because many static-analysis and optional security tools assume Unix-style shells and paths.
+
+| Environment | Recommendation | Notes |
+|---|---|---|
+| Linux (native) | **Best** | Highest compatibility with shell commands, containers, CI-like environments, and optional AppSec tooling |
+| Windows + WSL2 | **Strongly recommended** | Best option for Windows users; close to Linux behavior with much lower friction than PowerShell-only execution |
+| macOS | Good | Works well for static-first execution, but some tools differ from Linux in packaging and behavior |
+| Windows (native / PowerShell) | Supported with more friction | Use only when necessary; path handling, shell syntax, and tool availability are less predictable |
+
+The roadmap itself does not require Linux to function. The recommendation exists to improve command compatibility, reduce environment-specific failures, and make optional tooling easier to use when available.
+
 ### Run an Audit
 
-ESAA-Security does not require a dedicated CLI. The audit is executed by an LLM agent (Codex, Claude Code, or Gemini CLI) operating inside the project directory. The agent reads the initialization file, follows the ESAA workflow contracts, and executes tasks sequentially through the `claim → complete → review` cycle.
+ESAA-Security runs on top of the modern `esaa-core` runtime. In practice, the security audit is still executed by an LLM agent (Codex, Claude Code, or Gemini CLI) operating inside the project directory, but the workspace also exposes the current ESAA CLI surface for deterministic transitions, verification, telemetry, plugins, runner inputs, and roadmap operations.
+
+The agent remains responsible for the domain work: it reads the versioned contracts in `.roadmap/`, follows the ESAA workflow contracts, and executes tasks through the `claim → complete → review` cycle. The `esaa` runtime remains the single writer of the event store and the deterministic source of task state.
 
 1. Clone the repository and set up the target:
    ```bash
@@ -488,12 +532,21 @@ ESAA-Security does not require a dedicated CLI. The audit is executed by an LLM 
    cd esaa-security
    ```
 
-2. Configure the target repository in `.roadmap/init.yaml`:
+2. Provide the audit inputs to the agent or orchestrator runtime:
    ```yaml
-   # .roadmap/init.yaml — point to the repository under audit
    repo_path: /path/to/target/repo
-   # Optional: live endpoint for hybrid checks (headers, CORS, rate limiting)
+   # Optional: locally controlled endpoint for runtime confirmation only
    endpoint_base_url: http://localhost:3000
+   # Optional: if you already generated it in Phase 1
+   tool_capabilities_path: /path/to/target/repo/reports/phase1/tool-capabilities.json
+   docs_path: /path/to/target/repo/docs
+   infra_config_path: /path/to/target/repo
+   ci_config_path: /path/to/target/repo/.github/workflows
+   ```
+
+   Optional runner capability input can also be registered through the ESAA core when you want the runtime to expose local command surfaces as `runtime_capabilities`:
+   ```bash
+   python -m esaa --root . input commands register /path/to/runner-commands.yaml --runner-id codex
    ```
 
 3. Open the project in your agent CLI and instruct it to begin:
@@ -510,24 +563,36 @@ ESAA-Security does not require a dedicated CLI. The audit is executed by an LLM 
 
    Then instruct the agent:
    ```
-   Read .roadmap/init.yaml and begin executing the audit roadmap.
-   Follow the ESAA workflow: claim each task before working,
-   complete with structured results and verification evidence.
+   Read .roadmap/roadmap.security.json and .roadmap/playbooks.security.json.
+   Execute the audit in static-first mode against repo_path=/path/to/target/repo.
+   Use reports/phase1/tool-capabilities.json to decide optional tooling when it exists.
+   If endpoint_base_url is absent, run only the static portions of hybrid checks.
+   Use .roadmap/roadmap.json as the runtime progress view.
    ```
 
    The agent will:
-   - Read `init.yaml` for project configuration and target path
-   - Read `roadmap.json` to identify eligible tasks (status `todo`, dependencies satisfied)
+   - Read the audit input contract and target path
+   - Read `.roadmap/roadmap.json` to identify eligible tasks (status `todo`, dependencies satisfied)
    - Claim the next eligible task
-   - Execute the corresponding playbook from `playbooks/playbooks.security.json`
-   - Emit structured results (check status, severity, evidence, remediation)
+   - Execute the corresponding playbook from `.roadmap/playbooks.security.json`
+   - Emit structured results (check status, severity, confidence, evidence, remediation)
    - Complete the task with verification checks
    - Proceed to the next eligible task until all phases are done
 
+   The ESAA core can also be used directly for deterministic state operations around the audit:
+   ```bash
+   python -m esaa --root . bootstrap --profile public
+   python -m esaa --root . init --runner codex
+   python -m esaa --root . eligible
+   python -m esaa --root . dispatch-context SEC-010
+   python -m esaa --root . verify
+   ```
+
 4. Monitor progress:
    ```bash
-   cat .roadmap/roadmap.json      # Current audit state — tasks, statuses, indexes
-   cat .roadmap/activity.jsonl    # Append-only event log — every claim, completion, finding
+   cat .roadmap/roadmap.json               # Current projected audit state — tasks, statuses, indexes
+   cat .roadmap/roadmap.security.json      # Versioned roadmap contract (source of planned tasks/checks)
+   cat .roadmap/activity.jsonl             # Append-only event log — every claim, completion, finding
    ```
 
 5. Read the final report (generated in Phase 4):
@@ -544,8 +609,11 @@ ESAA-Security does not require a dedicated CLI. The audit is executed by an LLM 
 
 | Artifact | Schema | Description |
 |---|---|---|
-| `roadmap.security.json` | ESAA v0.4.0 | Audit roadmap — 26 tasks, 4 phases, schema-validated |
-| `playbooks.security.json` | playbooks.security.v1 | 95 executable checks across 16 domains with agent instructions |
+| `.roadmap/roadmap.security.json` | ESAA v0.6.0 | Versioned audit roadmap — 27 tasks, 4 phases, static-first local-code execution contract with optional tooling orchestration |
+| `.roadmap/playbooks.security.json` | playbooks.security.v1 | 108 executable checks across 17 domains with agent instructions, confidence guidance, false-positive guidance, and optional tooling blocks |
+| `.roadmap/roadmap.json` | projection view | Runtime read-model projected from the event store and consumed by the orchestrator |
+| `.roadmap/report-template.security.json` | report projection contract | Deterministic scoring and final report projection template |
+| `src/esaa/*` | esaa-core runtime | Modern ESAA core runtime surface ported into ESAA-Security, including deterministic CLI, runner metrics, input commands, plugin/roadmap operations, and edit-based file updates |
 | `PARCER_v1.6.0-security-audit.yaml` | — | Source framework defining security domains, guardrails, and agent governance ([paper](https://arxiv.org/abs/2603.00856)) |
 
 ---
@@ -554,11 +622,11 @@ ESAA-Security does not require a dedicated CLI. The audit is executed by an LLM 
 
 | Feature | Ad-hoc LLM review | OWASP Checklist | Commercial scanner | ESAA-Security |
 |---|---|---|---|---|
-| Structured coverage | ✗ | ✓ | ✓ | ✓ (95 checks, 16 domains) |
+| Structured coverage | ✗ | ✓ | ✓ | ✓ (108 checks, 17 domains) |
 | Agent-executable | ✗ | ✗ | ✗ | ✓ (playbooks with concrete commands) |
 | Audit trail | ✗ | ✗ | Partial | ✓ (append-only event store) |
 | Deterministic replay | ✗ | ✗ | ✗ | ✓ (SHA-256 verified) |
-| AI/LLM domain coverage | ✗ | ✗ | ✗ | ✓ (5 checks) |
+| AI/LLM domain coverage | ✗ | ✗ | ✗ | ✓ (7 checks) |
 | LGPD-aware | ✗ | ✗ | Partial | ✓ (DA-005) |
 | Open framework | ✗ | ✓ | ✗ | ✓ |
 
@@ -568,7 +636,7 @@ ESAA-Security does not require a dedicated CLI. The audit is executed by an LLM 
 
 ESAA-Security was validated against the [ESAA-Supervisor](https://github.com/elzobrito/esaa-supervisor), a full-stack web application for AI agent supervision built entirely through vibe coding with five frontier LLMs: **GPT 5.4**, **GPT 5.3-codex** (OpenAI Codex), **Claude Opus 4.6**, **Claude Sonnet 4.5** (Anthropic), and **Gemini 3.1 Pro** (Google DeepMind). The system comprises a FastAPI backend, a React/TypeScript frontend, multi-agent CLI orchestration, SSE log streaming, filesystem-backed canonical state, persistent chat, and token telemetry. All 18 roadmap tasks were completed — functionally, the system worked.
 
-The ESAA-Security audit pipeline executed all four phases — reconnaissance, domain audit execution across 16 domains, risk classification, and final reporting — producing structured check results, a vulnerability inventory, a risk matrix, technical remediations, best-practice guidance, and an executive summary.
+The published ESAA-Security case study executed the earlier 16-domain baseline — reconnaissance, domain audit execution, risk classification, and final reporting — producing structured check results, a vulnerability inventory, a risk matrix, technical remediations, best-practice guidance, and an executive summary. The current repository extends that baseline to 17 domains and 108 checks.
 
 ### Audit Results
 

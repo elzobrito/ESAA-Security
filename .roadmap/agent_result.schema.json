@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://esaa.local/schemas/agent_result.schema.json",
   "title": "ESAA Agent Result Envelope",
-  "$comment": "v0.4.1 — prior_status obrigatório; allOf condicional garante coerência entre action e prior_status; file_updates sem complete é inválido via WG-002.",
+  "$comment": "v0.4.2 — prior_status obrigatório; allOf condicional garante coerência entre action e prior_status; file_updates sem complete é inválido via WG-002; segurança pode anexar metadata opcional de auditoria.",
   "type": "object",
   "additionalProperties": false,
   "required": ["activity_event"],
@@ -21,9 +21,9 @@
           "minLength": 1
         },
         "prior_status": {
-          "$comment": "Status da tarefa no roadmap no momento da invocação. Declarado pelo agente e validado pelo Orchestrator via WG-003 antes de qualquer transição.",
+          "$comment": "Status da tarefa no roadmap no momento da invocação. Declarado pelo agente e validado pelo Orchestrator via WG-003 antes de qualquer transição. FIX-1810: 'done' é permitido apenas quando action='issue.report' (preserva evidência sobre tarefa imutável).",
           "type": "string",
-          "enum": ["todo", "in_progress", "review"]
+          "enum": ["todo", "in_progress", "review", "done"]
         },
         "notes": {
           "type": "string"
@@ -159,6 +159,57 @@
               }
             }
           }
+        },
+        "security_audit": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "evidence_types": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["code_snippet", "config_artifact", "tool_output", "runtime_probe", "doc_reference"]
+              },
+              "minItems": 1
+            },
+            "evidence_sources": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "tooling_observations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["check_id", "fallback_applied"],
+                "properties": {
+                  "check_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool_name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool_version": {
+                    "type": "string"
+                  },
+                  "fallback_applied": {
+                    "type": "boolean"
+                  },
+                  "fallback_reason": {
+                    "type": "string"
+                  },
+                  "confidence_effect": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
         }
       },
       "allOf": [
@@ -218,18 +269,57 @@
       "$comment": "Presente apenas quando action=complete. O Orchestrator rejeita file_updates em qualquer outro action via WG-002 (MISSING_COMPLETE).",
       "type": "array",
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["path", "content"],
-        "properties": {
-          "path": {
-            "type": "string",
-            "minLength": 1
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "content"],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "content": {
+                "type": "string"
+              }
+            }
           },
-          "content": {
-            "type": "string"
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "base_sha256", "edits"],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "base_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "edits": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["old_string", "new_string"],
+                  "properties": {
+                    "old_string": {
+                      "type": "string"
+                    },
+                    "new_string": {
+                      "type": "string"
+                    },
+                    "replace_all": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
           }
-        }
+        ]
       }
     }
   },

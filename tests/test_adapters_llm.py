@@ -26,6 +26,7 @@ def test_submit_claim_accepted(contract_bundle: Path) -> None:
         "activity_event": {
             "action": "claim",
             "task_id": "T-1000",
+            "prior_status": "todo",
             "notes": "claiming spec task",
         }
     }
@@ -43,7 +44,7 @@ def test_submit_complete_with_files(contract_bundle: Path) -> None:
 
     # First claim
     service.submit(
-        {"activity_event": {"action": "claim", "task_id": "T-1000"}},
+        {"activity_event": {"action": "claim", "task_id": "T-1000", "prior_status": "todo"}},
         actor="agent-spec",
     )
 
@@ -53,6 +54,7 @@ def test_submit_complete_with_files(contract_bundle: Path) -> None:
             "activity_event": {
                 "action": "complete",
                 "task_id": "T-1000",
+                "prior_status": "in_progress",
                 "verification": {"checks": ["manual-review"]},
             },
             "file_updates": [
@@ -72,7 +74,7 @@ def test_submit_boundary_violation_rejected(contract_bundle: Path) -> None:
     service.init(force=True)
 
     service.submit(
-        {"activity_event": {"action": "claim", "task_id": "T-1000"}},
+        {"activity_event": {"action": "claim", "task_id": "T-1000", "prior_status": "todo"}},
         actor="agent-spec",
     )
 
@@ -82,6 +84,7 @@ def test_submit_boundary_violation_rejected(contract_bundle: Path) -> None:
                 "activity_event": {
                     "action": "complete",
                     "task_id": "T-1000",
+                    "prior_status": "in_progress",
                     "verification": {"checks": ["ok"]},
                 },
                 "file_updates": [{"path": "src/evil.py", "content": "hack"}],
@@ -111,11 +114,11 @@ def test_submit_dry_run_no_persist(contract_bundle: Path) -> None:
 
     events_before = parse_event_store(contract_bundle)
     result = service.submit(
-        {"activity_event": {"action": "claim", "task_id": "T-1000"}},
+        {"activity_event": {"action": "claim", "task_id": "T-1000", "prior_status": "todo"}},
         actor="agent-spec",
         dry_run=True,
     )
-    assert result["status"] == "accepted"
+    assert result["status"] == "dry_run"
     events_after = parse_event_store(contract_bundle)
     assert len(events_after) == len(events_before)
 
@@ -127,7 +130,7 @@ def test_submit_full_lifecycle(contract_bundle: Path) -> None:
 
     # Claim
     service.submit(
-        {"activity_event": {"action": "claim", "task_id": "T-1000"}},
+        {"activity_event": {"action": "claim", "task_id": "T-1000", "prior_status": "todo"}},
         actor="agent-spec",
     )
     # Complete
@@ -136,6 +139,7 @@ def test_submit_full_lifecycle(contract_bundle: Path) -> None:
             "activity_event": {
                 "action": "complete",
                 "task_id": "T-1000",
+                "prior_status": "in_progress",
                 "verification": {"checks": ["reviewed"]},
             },
             "file_updates": [
@@ -150,6 +154,7 @@ def test_submit_full_lifecycle(contract_bundle: Path) -> None:
             "activity_event": {
                 "action": "review",
                 "task_id": "T-1000",
+                "prior_status": "review",
                 "decision": "approve",
                 "tasks": ["T-1000"],
             }
@@ -177,7 +182,7 @@ def test_process_inbox_accepted(contract_bundle: Path) -> None:
     inbox.mkdir(parents=True, exist_ok=True)
 
     # Write a claim to inbox with actor__task_id naming
-    payload = {"activity_event": {"action": "claim", "task_id": "T-1000"}}
+    payload = {"activity_event": {"action": "claim", "task_id": "T-1000", "prior_status": "todo"}}
     (inbox / "agent-spec__T-1000.json").write_text(
         json.dumps(payload), encoding="utf-8"
     )
@@ -221,7 +226,7 @@ def test_process_inbox_without_actor_prefix(contract_bundle: Path) -> None:
     inbox = contract_bundle / ".roadmap" / "inbox"
     inbox.mkdir(parents=True, exist_ok=True)
 
-    payload = {"activity_event": {"action": "claim", "task_id": "T-1000"}}
+    payload = {"activity_event": {"action": "claim", "task_id": "T-1000", "prior_status": "todo"}}
     (inbox / "T-1000.json").write_text(json.dumps(payload), encoding="utf-8")
 
     result = service.process()
@@ -250,7 +255,7 @@ def test_process_dry_run(contract_bundle: Path) -> None:
     inbox = contract_bundle / ".roadmap" / "inbox"
     inbox.mkdir(parents=True, exist_ok=True)
 
-    payload = {"activity_event": {"action": "claim", "task_id": "T-1000"}}
+    payload = {"activity_event": {"action": "claim", "task_id": "T-1000", "prior_status": "todo"}}
     (inbox / "agent-spec__T-1000.json").write_text(
         json.dumps(payload), encoding="utf-8"
     )

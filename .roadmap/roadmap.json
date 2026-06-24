@@ -3,34 +3,44 @@
     "schema_version": "0.4.0",
     "esaa_version": "0.4.x",
     "immutable_done": true,
-    "master_correlation_id": "CID-ESAA-INIT",
+    "master_correlation_id": "CID-SEC-AUDIT",
     "run": {
-      "run_id": "RUN-0001",
+      "run_id": "RUN-SEC-0001",
       "status": "initialized",
-      "last_event_seq": 6,
-      "projection_hash_sha256": "7f32d838c797f55429b11483f163a1cdcf12cb75e335ebb96f0202b07dc26014",
+      "last_event_seq": 30,
+      "projection_hash_sha256": "282c78a492786cd7ed8f55fd23ae246947fbeb2c3bee56e33b3f2dd8e2aadbce",
       "verify_status": "ok"
     },
-    "updated_at": "2026-02-27T01:25:22Z"
+    "updated_at": "2026-05-22T17:34:27Z"
   },
   "project": {
-    "name": "esaa-core",
-    "audit_scope": ".roadmap/"
+    "name": "PARCER Security Audit",
+    "audit_scope": "Auditoria de segurança full-stack orientada a código-fonte local, cobrindo 17 domínios (secrets, dependências, autenticação, autorização, API, validação de entrada, upload, sessão, criptografia, headers, logs, infraestrutura, DevSecOps, dados, frontend, IA/LLM, lógica de negócio) com playbooks agent-executable e governança de ciclo de vida ESAA. O escopo primário é inspeção do repositório e configurações versionadas; verificações híbridas de runtime só são executadas quando endpoint_base_url é fornecido explicitamente."
   },
   "tasks": [
     {
-      "task_id": "T-1000",
+      "task_id": "SEC-001",
       "task_kind": "spec",
-      "title": "Create initial ESAA spec document",
-      "description": "Produce the initial specification artifact for the ESAA core baseline.",
+      "title": "Identificar stack tecnológica",
+      "description": "Mapear linguagens, frameworks, bancos de dados, serviços cloud, runtimes e dependências externas. Produzir inventário versionado que servirá de base para todos os checks subsequentes.",
       "status": "todo",
       "depends_on": [],
       "targets": [
-        "spec-core"
+        "package.json",
+        "requirements.txt",
+        "go.mod",
+        "Cargo.toml",
+        "composer.json",
+        "Gemfile",
+        "pom.xml",
+        "build.gradle",
+        "Dockerfile",
+        "docker-compose.yml",
+        "pyproject.toml"
       ],
       "outputs": {
         "files": [
-          "docs/spec/T-1000.md"
+          "reports/phase1/tech-stack-inventory.md"
         ]
       },
       "immutability": {
@@ -38,20 +48,81 @@
       }
     },
     {
-      "task_id": "T-1010",
+      "task_id": "SEC-002",
+      "task_kind": "spec",
+      "title": "Identificar arquitetura do sistema",
+      "description": "Documentar componentes, fluxos de dados, pontos de integração, fronteiras de confiança, zonas de rede e dependências entre serviços.",
+      "status": "todo",
+      "depends_on": [
+        "SEC-001"
+      ],
+      "targets": [
+        "docker-compose.yml",
+        "k8s/",
+        "terraform/",
+        "docs/architecture.md",
+        "README.md",
+        ".github/workflows/"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase1/architecture-map.md",
+          "reports/phase1/data-flow-diagram.md"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-003",
+      "task_kind": "spec",
+      "title": "Identificar superfícies de ataque",
+      "description": "Enumerar todos os pontos de entrada do sistema: endpoints HTTP, handlers de upload, WebSockets, webhooks, filas, APIs externas consumidas e pontos de execução de código. Produzir attack-surface-inventory reutilizável pelos checks de impl.",
+      "status": "todo",
+      "depends_on": [
+        "SEC-002"
+      ],
+      "targets": [
+        "src/routes/",
+        "src/controllers/",
+        "src/handlers/",
+        "src/api/",
+        "openapi.yaml",
+        "swagger.json",
+        "routes.php",
+        "urls.py"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase1/attack-surface-inventory.md",
+          "reports/phase1/endpoints-inventory.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-010",
       "task_kind": "impl",
-      "title": "Create initial implementation artifact",
-      "description": "Produce the initial implementation artifact that follows the approved specification.",
+      "title": "Auditar Secrets & Configuração",
+      "description": "Verificar exposição de segredos hardcoded, chaves API no frontend, .env commitados, CORS permissivo, debug mode em produção, credenciais padrão, configs de exemplo e variáveis sensíveis em logs. | Playbook: secrets_config | Checks: SC-001, SC-002, SC-003, SC-004, SC-005, SC-006, SC-007, SC-008 | OWASP/CWE: A02:2021, A05:2021, CWE-798, CWE-522 | Detalhes executáveis em .roadmap/playbooks.security.json[secrets_config].",
       "status": "todo",
       "depends_on": [
-        "T-1000"
+        "SEC-003"
       ],
       "targets": [
-        "impl-core"
+        "**/*.{js,ts,py,go,java,php,rb,cs,rs}",
+        "**/*.{json,yaml,yml,toml,xml,ini,cfg}",
+        ".env*",
+        ".gitignore",
+        "docker-compose*.yml"
       ],
       "outputs": {
         "files": [
-          "src/T-1010.txt"
+          "reports/phase2/secrets-config-audit.md",
+          "reports/phase2/results/SEC-010.json"
         ]
       },
       "immutability": {
@@ -59,20 +130,619 @@
       }
     },
     {
-      "task_id": "T-1020",
-      "task_kind": "qa",
-      "title": "Create initial QA report",
-      "description": "Produce the initial QA evidence artifact validating the implementation baseline.",
+      "task_id": "SEC-011",
+      "task_kind": "impl",
+      "title": "Auditar Dependências e Supply Chain",
+      "description": "Analisar dependências com CVEs conhecidos, pacotes abandonados, typosquatting, presença de lockfile, builds não reproduzíveis e scripts de postinstall suspeitos. | Playbook: dependencies_supply_chain | Checks: DS-001, DS-002, DS-003, DS-004, DS-005, DS-006 | OWASP/CWE: A06:2021, A08:2021, CWE-1104, CWE-1357 | Detalhes executáveis em .roadmap/playbooks.security.json[dependencies_supply_chain].",
       "status": "todo",
       "depends_on": [
-        "T-1010"
+        "SEC-001"
       ],
       "targets": [
-        "qa-core"
+        "package.json",
+        "package-lock.json",
+        "yarn.lock",
+        "requirements.txt",
+        "Pipfile.lock",
+        "poetry.lock",
+        "go.sum",
+        "Cargo.lock",
+        "composer.lock",
+        "Gemfile.lock",
+        "Dockerfile"
       ],
       "outputs": {
         "files": [
-          "docs/qa/T-1020.md"
+          "reports/phase2/dependencies-audit.md",
+          "reports/phase2/results/SEC-011.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-012",
+      "task_kind": "impl",
+      "title": "Auditar Autenticação",
+      "description": "Avaliar hash de senhas, MFA, reset de senha, expiração de sessão, proteção contra brute force, tokens permanentes, session fixation e fraquezas específicas de JWT (alg=none, HS256 com segredo fraco, kid injection, algorithm confusion). | Playbook: authentication | Checks: AU-001, AU-002, AU-003, AU-004, AU-005, AU-006, AU-007, AU-008, AU-009 | OWASP/CWE: A02:2021, A07:2021, API2:2023, CWE-287, CWE-798, CWE-384 | Detalhes executáveis em .roadmap/playbooks.security.json[authentication].",
+      "status": "todo",
+      "depends_on": [
+        "SEC-003"
+      ],
+      "targets": [
+        "src/models/user*",
+        "src/auth/",
+        "src/middleware/auth*",
+        "src/controllers/auth*",
+        "src/routes/auth*",
+        "src/services/jwt*",
+        "src/config/auth*"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/authentication-audit.md",
+          "reports/phase2/results/SEC-012.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-013",
+      "task_kind": "impl",
+      "title": "Auditar Autorização",
+      "description": "Verificar controle de acesso em todas as rotas, IDOR, verificação de permissão apenas no frontend, admin routes expostas, escopo de permissões e confirmação em ações destrutivas. | Playbook: authorization | Checks: AZ-001, AZ-002, AZ-003, AZ-004, AZ-005, AZ-006 | OWASP/CWE: A01:2021, API1:2023, API5:2023, CWE-862, CWE-863, CWE-285 | Detalhes executáveis em .roadmap/playbooks.security.json[authorization].",
+      "status": "todo",
+      "depends_on": [
+        "SEC-012"
+      ],
+      "targets": [
+        "src/middleware/",
+        "src/policies/",
+        "src/guards/",
+        "src/routes/",
+        "src/controllers/",
+        "reports/phase1/endpoints-inventory.json"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/authorization-audit.md",
+          "reports/phase2/results/SEC-013.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-014",
+      "task_kind": "impl",
+      "title": "Auditar Segurança de API",
+      "description": "Avaliar rate limiting, over-fetching, enumeração de usuários, validação de schema, versionamento, paginação, proteção contra replay, mass assignment (BOPLA write-side) e consumo inseguro de APIs externas. | Playbook: api_security | Checks: AP-001, AP-002, AP-003, AP-004, AP-005, AP-006, AP-007, AP-008, AP-009 | OWASP/CWE: API3:2023, API4:2023, API9:2023, API10:2023, CWE-915, CWE-20 | Detalhes executáveis em .roadmap/playbooks.security.json[api_security].",
+      "status": "todo",
+      "depends_on": [
+        "SEC-003"
+      ],
+      "targets": [
+        "src/routes/",
+        "src/controllers/",
+        "src/middleware/rateLimit*",
+        "src/validators/",
+        "src/serializers/",
+        "src/services/http*",
+        "src/clients/"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/api-security-audit.md",
+          "reports/phase2/results/SEC-014.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-015",
+      "task_kind": "impl",
+      "title": "Auditar Validação de Entrada",
+      "description": "Testar SQL injection, command injection, template injection, SSRF, XSS, inputs não validados, sanitização ausente, deserialização insegura (pickle/yaml.load/unserialize/readObject), XML External Entity (XXE) e open redirect. | Playbook: input_validation | Checks: IV-001, IV-002, IV-003, IV-004, IV-005, IV-006, IV-007, IV-008, IV-009, IV-010 | OWASP/CWE: A03:2021, A10:2021, CWE-79, CWE-89, CWE-78, CWE-94, CWE-502, CWE-611, CWE-601, CWE-918 | Detalhes executáveis em .roadmap/playbooks.security.json[input_validation].",
+      "status": "todo",
+      "depends_on": [
+        "SEC-003"
+      ],
+      "targets": [
+        "src/controllers/",
+        "src/handlers/",
+        "src/routes/",
+        "src/models/",
+        "src/repositories/",
+        "src/templates/",
+        "src/utils/serializ*",
+        "src/parsers/"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/input-validation-audit.md",
+          "reports/phase2/results/SEC-015.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-016",
+      "task_kind": "impl",
+      "title": "Auditar Upload de Arquivos",
+      "description": "Verificar validação de tipo por magic bytes, limite de tamanho, storage em object store externo, scan antivírus, bloqueio de extensões executáveis e sanitização de filenames. | Playbook: file_upload | Checks: FU-001, FU-002, FU-003, FU-004, FU-005, FU-006 | OWASP/CWE: A04:2021, A05:2021, CWE-434, CWE-22, CWE-73 | Detalhes executáveis em .roadmap/playbooks.security.json[file_upload].",
+      "status": "todo",
+      "depends_on": [
+        "SEC-003"
+      ],
+      "targets": [
+        "src/controllers/upload*",
+        "src/middleware/upload*",
+        "src/services/storage*",
+        "src/config/multer*",
+        "src/handlers/file*"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/file-upload-audit.md",
+          "reports/phase2/results/SEC-016.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-017",
+      "task_kind": "impl",
+      "title": "Auditar Segurança de Sessão",
+      "description": "Avaliar flags httpOnly/Secure/SameSite em cookies, CSRF tokens, expiração de sessão, idle timeout e reutilização de tokens de ação única. | Playbook: session_security | Checks: SS-001, SS-002, SS-003, SS-004, SS-005, SS-006 | OWASP/CWE: A07:2021, CWE-352, CWE-614, CWE-1004, CWE-613 | Detalhes executáveis em .roadmap/playbooks.security.json[session_security].",
+      "status": "todo",
+      "depends_on": [
+        "SEC-012"
+      ],
+      "targets": [
+        "src/config/session*",
+        "src/middleware/csrf*",
+        "src/middleware/session*",
+        "src/auth/"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/session-security-audit.md",
+          "reports/phase2/results/SEC-017.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-018",
+      "task_kind": "impl",
+      "title": "Auditar Criptografia",
+      "description": "Verificar HTTPS obrigatório, algoritmos criptográficos modernos, encryption at-rest, proteção de chaves e política de rotação. | Playbook: cryptography | Checks: CR-001, CR-002, CR-003, CR-004, CR-005 | OWASP/CWE: A02:2021, CWE-327, CWE-326, CWE-311, CWE-321 | Detalhes executáveis em .roadmap/playbooks.security.json[cryptography].",
+      "status": "todo",
+      "depends_on": [
+        "SEC-003"
+      ],
+      "targets": [
+        "src/config/",
+        "src/utils/crypto*",
+        "src/services/encrypt*",
+        "nginx.conf",
+        "infra/"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/cryptography-audit.md",
+          "reports/phase2/results/SEC-018.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-019",
+      "task_kind": "impl",
+      "title": "Auditar Headers de Segurança",
+      "description": "Verificar presença e configuração de Content-Security-Policy, Strict-Transport-Security, X-Frame-Options, X-Content-Type-Options e Referrer-Policy. | Playbook: security_headers | Checks: SH-001, SH-002, SH-003, SH-004, SH-005 | OWASP/CWE: A05:2021, CWE-1021, CWE-693 | Detalhes executáveis em .roadmap/playbooks.security.json[security_headers].",
+      "status": "todo",
+      "depends_on": [
+        "SEC-003"
+      ],
+      "targets": [
+        "src/middleware/helmet*",
+        "src/middleware/headers*",
+        "src/config/security*",
+        "nginx.conf"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/security-headers-audit.md",
+          "reports/phase2/results/SEC-019.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-020",
+      "task_kind": "impl",
+      "title": "Auditar Logs e Monitoramento",
+      "description": "Avaliar exposição de dados sensíveis em logs, presença de audit trail, logs estruturados, alertas de segurança e correlation IDs. | Playbook: logging_monitoring | Checks: LM-001, LM-002, LM-003, LM-004, LM-005 | OWASP/CWE: A09:2021, CWE-778, CWE-532, CWE-117 | Detalhes executáveis em .roadmap/playbooks.security.json[logging_monitoring].",
+      "status": "todo",
+      "depends_on": [
+        "SEC-003"
+      ],
+      "targets": [
+        "src/config/logger*",
+        "src/middleware/logging*",
+        "src/utils/logger*",
+        "src/services/alert*"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/logging-monitoring-audit.md",
+          "reports/phase2/results/SEC-020.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-021",
+      "task_kind": "impl",
+      "title": "Auditar Infraestrutura",
+      "description": "Avaliar a postura de infraestrutura observável em código e configuração versionada local: indícios de HTTPS/TLS, firewall, WAF, segmentação de rede, backups, proteção DDoS e hardening de containers (root user, privileged mode, docker.sock, tags imutáveis, resource limits). | Playbook: infrastructure | Checks: IF-001, IF-002, IF-003, IF-004, IF-005, IF-006, IF-007 | OWASP/CWE: A05:2021, CWE-250, CWE-284, CWE-16 | Detalhes executáveis em .roadmap/playbooks.security.json[infrastructure].",
+      "status": "todo",
+      "depends_on": [
+        "SEC-002"
+      ],
+      "targets": [
+        "docker-compose*.yml",
+        "Dockerfile*",
+        "k8s/",
+        "terraform/",
+        "nginx.conf",
+        "infra/",
+        ".dockerignore"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/infrastructure-audit.md",
+          "reports/phase2/results/SEC-021.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-022",
+      "task_kind": "impl",
+      "title": "Auditar DevSecOps",
+      "description": "Avaliar a postura DevSecOps observável em CI e configuração versionada: code review, pipeline com análise de segurança, secrets scanning, SAST, DAST e audit trail de deploys. | Playbook: devsecops | Checks: DO-001, DO-002, DO-003, DO-004, DO-005, DO-006 | OWASP/CWE: A05:2021, A08:2021, CWE-1357 | Detalhes executáveis em .roadmap/playbooks.security.json[devsecops].",
+      "status": "todo",
+      "depends_on": [
+        "SEC-011"
+      ],
+      "targets": [
+        ".github/workflows/",
+        ".gitlab-ci.yml",
+        "Jenkinsfile",
+        ".pre-commit-config.yaml",
+        "CODEOWNERS",
+        ".github/CODEOWNERS",
+        "sonar-project.properties"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/devsecops-audit.md",
+          "reports/phase2/results/SEC-022.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-023",
+      "task_kind": "impl",
+      "title": "Auditar Segurança de Dados",
+      "description": "Verificar proteção de PII, minimização de coleta, política de retenção, anonimização e conformidade LGPD/GDPR (consentimento, portabilidade, direito ao esquecimento, ROPA). | Playbook: data_security | Checks: DA-001, DA-002, DA-003, DA-004, DA-005 | OWASP/CWE: A02:2021, A04:2021, CWE-359, CWE-312 | Detalhes executáveis em .roadmap/playbooks.security.json[data_security].",
+      "status": "todo",
+      "depends_on": [
+        "SEC-003"
+      ],
+      "targets": [
+        "src/models/",
+        "src/migrations/",
+        "src/schemas/",
+        "docs/privacy*",
+        "docs/lgpd*",
+        "docs/gdpr*"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/data-security-audit.md",
+          "reports/phase2/results/SEC-023.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-024",
+      "task_kind": "impl",
+      "title": "Auditar Segurança de Frontend",
+      "description": "Verificar tokens em localStorage, HTML não sanitizado, dependências JS vulneráveis, Subresource Integrity em scripts CDN e presença de lógica crítica no frontend. | Playbook: frontend_security | Checks: FE-001, FE-002, FE-003, FE-004 | OWASP/CWE: A03:2021, A07:2021, CWE-79, CWE-922 | Detalhes executáveis em .roadmap/playbooks.security.json[frontend_security].",
+      "status": "todo",
+      "depends_on": [
+        "SEC-003"
+      ],
+      "targets": [
+        "src/components/",
+        "src/pages/",
+        "src/views/",
+        "src/stores/",
+        "public/",
+        "client/",
+        "static/"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/frontend-security-audit.md",
+          "reports/phase2/results/SEC-024.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-025",
+      "task_kind": "impl",
+      "title": "Auditar Segurança de IA/LLM",
+      "description": "Avaliar, a partir de integrações e guardrails observáveis no código local, prompt injection, escopo de ferramentas do LLM, filtragem de input, exfiltração via output, audit log de decisões, proveniência de modelos/dados de treino e controle de consumo (token budget, quotas). | Playbook: ai_llm_security | Checks: AI-001, AI-002, AI-003, AI-004, AI-005, AI-006, AI-007 | OWASP/CWE: LLM01:2025, LLM02:2025, LLM03:2025, LLM05:2025, LLM06:2025, LLM07:2025, LLM10:2025 | Detalhes executáveis em .roadmap/playbooks.security.json[ai_llm_security].",
+      "status": "todo",
+      "depends_on": [
+        "SEC-003"
+      ],
+      "targets": [
+        "src/ai/",
+        "src/agents/",
+        "src/llm/",
+        "src/prompts/",
+        "src/tools/",
+        "src/services/ai*",
+        "src/services/llm*",
+        "src/rag/",
+        "src/vectors/"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/ai-llm-security-audit.md",
+          "reports/phase2/results/SEC-025.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-026",
+      "task_kind": "impl",
+      "title": "Auditar Lógica de Negócio e Anti-Automação",
+      "description": "Avaliar, por inspeção de fluxos e invariantes observáveis no código local, falhas de lógica de negócio que permitem bypass de workflow, exploração de race conditions (TOCTOU) em operações sensíveis (pagamento, transferência, alteração de saldo/permissão), ausência de anti-automação em fluxos críticos (checkout, cadastro, review, cupom) e possibilidade de abuso de fluxos negocialmente permitidos (OWASP API6:2023 - Unrestricted Access to Sensitive Business Flows). | Playbook: business_logic | Checks: BL-001, BL-002, BL-003, BL-004 | OWASP/CWE: A04:2021, API6:2023, CWE-840, CWE-362, CWE-367, CWE-841 | Detalhes executáveis em .roadmap/playbooks.security.json[business_logic].",
+      "status": "todo",
+      "depends_on": [
+        "SEC-003",
+        "SEC-013"
+      ],
+      "targets": [
+        "src/controllers/",
+        "src/services/",
+        "src/workflows/",
+        "src/handlers/payment*",
+        "src/handlers/checkout*",
+        "src/handlers/transfer*",
+        "src/handlers/order*",
+        "src/handlers/coupon*",
+        "src/handlers/review*",
+        "reports/phase1/endpoints-inventory.json"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase2/business-logic-audit.md",
+          "reports/phase2/results/SEC-026.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-030",
+      "task_kind": "qa",
+      "title": "Consolidar vulnerabilidades identificadas",
+      "description": "Agregar todas as vulnerabilidades encontradas na fase 2 em inventário único, com IDs estáveis, domínio de origem, check_id de proveniência e evidências técnicas. Deduplicação de findings cross-domain (ex: SC-008 ↔ LM-001, CR-001 ↔ IF-001).",
+      "status": "todo",
+      "depends_on": [
+        "SEC-010",
+        "SEC-011",
+        "SEC-012",
+        "SEC-013",
+        "SEC-014",
+        "SEC-015",
+        "SEC-016",
+        "SEC-017",
+        "SEC-018",
+        "SEC-019",
+        "SEC-020",
+        "SEC-021",
+        "SEC-022",
+        "SEC-023",
+        "SEC-024",
+        "SEC-025",
+        "SEC-026"
+      ],
+      "targets": [
+        "reports/phase2/results/"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase3/vulnerability-inventory.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-031",
+      "task_kind": "qa",
+      "title": "Classificar severidade e impacto",
+      "description": "Atribuir severidade final (CRITICAL/HIGH/MEDIUM/LOW/INFO) e avaliar impacto CIA (confidencialidade, integridade, disponibilidade) de cada vulnerabilidade com justificativa técnica. Reclassificar findings de confidence=low como INFO quando não corroborados.",
+      "status": "todo",
+      "depends_on": [
+        "SEC-030"
+      ],
+      "targets": [
+        "reports/phase3/vulnerability-inventory.json"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase3/classified-vulnerabilities.json"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-032",
+      "task_kind": "qa",
+      "title": "Gerar Matriz de Riscos",
+      "description": "Produzir matriz consolidada: vulnerabilidade × categoria × severidade × impacto CIA × recomendação, ordenada por severidade decrescente e priorizada por explorabilidade.",
+      "status": "todo",
+      "depends_on": [
+        "SEC-031"
+      ],
+      "targets": [
+        "reports/phase3/classified-vulnerabilities.json"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase3/risk-matrix.json",
+          "reports/phase3/risk-matrix.md"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-040",
+      "task_kind": "spec",
+      "title": "Propor correções técnicas",
+      "description": "Para cada vulnerabilidade CRITICAL e HIGH, detalhar correção técnica específica com snippets de código/configuração, referência ao check de origem e esforço estimado. Para MEDIUM/LOW, fornecer recomendação resumida.",
+      "status": "todo",
+      "depends_on": [
+        "SEC-032"
+      ],
+      "targets": [
+        "reports/phase3/risk-matrix.json"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase4/technical-remediations.md"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-041",
+      "task_kind": "spec",
+      "title": "Documentar boas práticas",
+      "description": "Consolidar boas práticas de segurança organizadas por domínio, com referências a OWASP, CIS, NIST SSDF, verificando aplicabilidade ao contexto da stack identificada.",
+      "status": "todo",
+      "depends_on": [
+        "SEC-032"
+      ],
+      "targets": [
+        "reports/phase3/risk-matrix.json",
+        "reports/phase2/results/"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase4/best-practices.md"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-042",
+      "task_kind": "qa",
+      "title": "Gerar Resumo Executivo",
+      "description": "Produzir resumo executivo (máximo 1 página) com score final de segurança (0-100) calculado pela fórmula determinística em report-template.security.json (severity_weights × domain_priority_weights com penalty_rules), top 5 riscos prioritários e recomendações de ação imediata.",
+      "status": "todo",
+      "depends_on": [
+        "SEC-040",
+        "SEC-041"
+      ],
+      "targets": [
+        "reports/phase4/technical-remediations.md",
+        "reports/phase4/best-practices.md",
+        "reports/phase3/risk-matrix.json",
+        "report-template.security.json"
+      ],
+      "outputs": {
+        "files": [
+          "reports/phase4/executive-summary.md"
+        ]
+      },
+      "immutability": {
+        "done_is_immutable": true
+      }
+    },
+    {
+      "task_id": "SEC-043",
+      "task_kind": "qa",
+      "title": "Compilar Relatório Final de Auditoria",
+      "description": "Montar relatório completo projetando dados dos result files no report-template.security.json (schema) e REPORT_TEMPLATE.md (formato de renderização). Seções: header, executive_summary (com score), vulnerability_matrix, detailed_analysis por domínio, priority_risks com cenários de exploração, technical_recommendations em 4 tiers (imediato/curto/médio/longo prazo) e appendix com resultados completos e metadados de auditoria. Todos os achados rastreáveis aos checks via check_id e finding_id.",
+      "status": "todo",
+      "depends_on": [
+        "SEC-042"
+      ],
+      "targets": [
+        "report-template.security.json",
+        "REPORT_TEMPLATE.md",
+        "reports/phase4/executive-summary.md",
+        "reports/phase3/risk-matrix.json",
+        "reports/phase4/technical-remediations.md",
+        "reports/phase4/best-practices.md",
+        "reports/phase2/results/"
+      ],
+      "outputs": {
+        "files": [
+          "reports/final/security-audit-report.md",
+          "reports/final/security-audit-report.json"
         ]
       },
       "immutability": {
@@ -82,12 +752,12 @@
   ],
   "indexes": {
     "by_status": {
-      "todo": 3
+      "todo": 27
     },
     "by_kind": {
-      "impl": 1,
-      "qa": 1,
-      "spec": 1
+      "impl": 17,
+      "qa": 5,
+      "spec": 5
     }
   }
 }

@@ -2,13 +2,14 @@
   "$schema": "report.security.v1",
   "metadata": {
     "title": "ESAA Security Audit Report Template",
-    "version": "1.0.0",
-    "description": "Template estruturado que define a forma exata do relatório final. O agente SEC-043 projeta os dados dos result files (reports/phase2/results/*.json, reports/phase3/*.json) neste formato. O output é determinístico: mesmos inputs sempre geram o mesmo relatório.",
+    "version": "1.1.0",
+    "description": "Template estruturado que define a forma exata do relatório final. O agente SEC-043 projeta os dados dos result files neste formato, preservando evidências multi-source sem double-counting. O output é determinístico: mesmos inputs sempre geram o mesmo relatório.",
     "produces": [
       "reports/final/security-audit-report.json",
       "reports/final/security-audit-report.md"
     ],
     "consumes": [
+      "reports/phase1/tool-capabilities.json",
       "reports/phase1/tech-stack-inventory.md",
       "reports/phase1/architecture-map.md",
       "reports/phase1/attack-surface-inventory.md",
@@ -21,9 +22,7 @@
       "reports/phase4/executive-summary.md"
     ]
   },
-
   "report_schema": {
-
     "header": {
       "report_id": {
         "type": "string",
@@ -49,12 +48,25 @@
         "description": "Escopo da auditoria, copiado de project.audit_scope do roadmap."
       },
       "target": {
-        "repo_path": { "type": "string" },
-        "endpoint_base_url": { "type": ["string", "null"] },
-        "tech_stack_summary": { "type": "string", "description": "Resumo do stack (derivado de SEC-001)." }
+        "repo_path": {
+          "type": "string"
+        },
+        "endpoint_base_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tech_stack_summary": {
+          "type": "string",
+          "description": "Resumo do stack (derivado de SEC-001)."
+        },
+        "tool_capabilities_summary": {
+          "type": "string",
+          "description": "Resumo do ambiente local disponível para a auditoria (SO, shell e ferramentas opcionais detectadas)."
+        }
       }
     },
-
     "executive_summary": {
       "description": "Visão geral em até 300 palavras. Deve responder: qual o estado geral de segurança, quais são os riscos mais urgentes, e o que precisa ser feito primeiro.",
       "fields": {
@@ -66,17 +78,42 @@
           "type": "object",
           "description": "Score calculado pela fórmula definida em score_calculation.",
           "fields": {
-            "value": { "type": "number", "minimum": 0, "maximum": 100 },
-            "classification": { "type": "string", "enum": ["critical", "poor", "fair", "good", "excellent"] },
+            "value": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "classification": {
+              "type": "string",
+              "enum": [
+                "critical",
+                "poor",
+                "fair",
+                "good",
+                "excellent"
+              ]
+            },
             "breakdown": {
               "type": "object",
               "description": "Score por domínio para identificar áreas mais fracas.",
               "fields": {
-                "domain": { "type": "string" },
-                "score": { "type": "number", "minimum": 0, "maximum": 100 },
-                "checks_pass": { "type": "integer" },
-                "checks_fail": { "type": "integer" },
-                "checks_na": { "type": "integer" }
+                "domain": {
+                  "type": "string"
+                },
+                "score": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "checks_pass": {
+                  "type": "integer"
+                },
+                "checks_fail": {
+                  "type": "integer"
+                },
+                "checks_na": {
+                  "type": "integer"
+                }
               }
             }
           }
@@ -86,31 +123,66 @@
           "max_items": 5,
           "description": "Os 5 riscos mais críticos, ordenados por severidade × impacto.",
           "item_fields": {
-            "rank": { "type": "integer" },
-            "check_id": { "type": "string" },
-            "vulnerability": { "type": "string" },
-            "domain": { "type": "string" },
-            "severity": { "type": "string" },
-            "impact_summary": { "type": "string" },
-            "immediate_action": { "type": "string" }
+            "rank": {
+              "type": "integer"
+            },
+            "check_id": {
+              "type": "string"
+            },
+            "vulnerability": {
+              "type": "string"
+            },
+            "domain": {
+              "type": "string"
+            },
+            "severity": {
+              "type": "string"
+            },
+            "impact_summary": {
+              "type": "string"
+            },
+            "immediate_action": {
+              "type": "string"
+            }
           }
         },
         "stats": {
-          "total_checks_executed": { "type": "integer" },
-          "checks_pass": { "type": "integer" },
-          "checks_fail": { "type": "integer" },
-          "checks_partial": { "type": "integer" },
-          "checks_na": { "type": "integer" },
-          "domains_audited": { "type": "integer" },
-          "critical_findings": { "type": "integer" },
-          "high_findings": { "type": "integer" },
-          "medium_findings": { "type": "integer" },
-          "low_findings": { "type": "integer" },
-          "info_findings": { "type": "integer" }
+          "total_checks_executed": {
+            "type": "integer"
+          },
+          "checks_pass": {
+            "type": "integer"
+          },
+          "checks_fail": {
+            "type": "integer"
+          },
+          "checks_partial": {
+            "type": "integer"
+          },
+          "checks_na": {
+            "type": "integer"
+          },
+          "domains_audited": {
+            "type": "integer"
+          },
+          "critical_findings": {
+            "type": "integer"
+          },
+          "high_findings": {
+            "type": "integer"
+          },
+          "medium_findings": {
+            "type": "integer"
+          },
+          "low_findings": {
+            "type": "integer"
+          },
+          "info_findings": {
+            "type": "integer"
+          }
         }
       }
     },
-
     "vulnerability_matrix": {
       "description": "Tabela completa de todas as vulnerabilidades encontradas, ordenada por severidade decrescente.",
       "columns": [
@@ -121,6 +193,7 @@
         "severity",
         "impact_cia",
         "status",
+        "evidence_sources",
         "remediation_summary"
       ],
       "item_schema": {
@@ -143,36 +216,90 @@
         },
         "severity": {
           "type": "string",
-          "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
+          "enum": [
+            "CRITICAL",
+            "HIGH",
+            "MEDIUM",
+            "LOW",
+            "INFO"
+          ]
         },
         "impact_cia": {
           "type": "object",
           "description": "Impacto em Confidencialidade, Integridade e Disponibilidade.",
           "fields": {
-            "confidentiality": { "type": "string", "enum": ["none", "low", "medium", "high"] },
-            "integrity": { "type": "string", "enum": ["none", "low", "medium", "high"] },
-            "availability": { "type": "string", "enum": ["none", "low", "medium", "high"] }
+            "confidentiality": {
+              "type": "string",
+              "enum": [
+                "none",
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "integrity": {
+              "type": "string",
+              "enum": [
+                "none",
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "availability": {
+              "type": "string",
+              "enum": [
+                "none",
+                "low",
+                "medium",
+                "high"
+              ]
+            }
           }
         },
         "status": {
           "type": "string",
-          "enum": ["fail", "partial"],
+          "enum": [
+            "fail",
+            "partial"
+          ],
           "description": "Apenas findings com fail ou partial entram na matriz."
         },
         "remediation_summary": {
           "type": "string",
           "description": "Resumo da correção em 1-2 frases."
+        },
+        "evidence_sources": {
+          "type": "array",
+          "items": [
+            "type=string"
+          ],
+          "description": "Canais que corroboraram o finding, por exemplo static_analysis, tool_output e runtime_probe."
         }
       }
     },
-
     "detailed_analysis": {
       "description": "Análise técnica organizada por domínio. Cada domínio contém todos os checks executados com resultado, evidência e recomendação.",
       "per_domain": {
-        "domain_key": { "type": "string" },
-        "domain_title": { "type": "string" },
-        "domain_priority": { "type": "string", "enum": ["critical", "high", "medium"] },
-        "domain_score": { "type": "number", "minimum": 0, "maximum": 100 },
+        "domain_key": {
+          "type": "string"
+        },
+        "domain_title": {
+          "type": "string"
+        },
+        "domain_priority": {
+          "type": "string",
+          "enum": [
+            "critical",
+            "high",
+            "medium"
+          ]
+        },
+        "domain_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
         "summary": {
           "type": "string",
           "description": "Parágrafo resumindo o estado do domínio."
@@ -180,27 +307,97 @@
         "checks": {
           "type": "array",
           "item_schema": {
-            "check_id": { "type": "string" },
-            "check_name": { "type": "string" },
-            "status": { "type": "string", "enum": ["pass", "fail", "partial", "not_applicable", "error"] },
-            "severity_if_fail": { "type": "string" },
+            "check_id": {
+              "type": "string"
+            },
+            "check_name": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "pass",
+                "fail",
+                "partial",
+                "not_applicable",
+                "error"
+              ]
+            },
+            "severity_if_fail": {
+              "type": "string"
+            },
             "evidence": {
               "type": "object",
               "fields": {
                 "files": {
                   "type": "array",
-                  "items": { "type": "string" },
+                  "items": {
+                    "type": "string"
+                  },
                   "description": "Arquivos onde o problema foi encontrado."
                 },
                 "lines": {
                   "type": "array",
-                  "items": { "type": "string" },
+                  "items": {
+                    "type": "string"
+                  },
                   "description": "Linhas ou trechos relevantes (sem reproduzir código completo)."
                 },
                 "commands_output": {
                   "type": "array",
-                  "items": { "type": "string" },
-                  "description": "Output resumido dos comandos executados."
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Output resumido dos comandos ou scanners executados."
+                },
+                "evidence_types": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "code_snippet",
+                      "config_artifact",
+                      "tool_output",
+                      "runtime_probe",
+                      "doc_reference"
+                    ]
+                  },
+                  "description": "Tipos padronizados de evidência associados ao check."
+                },
+                "evidence_sources": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Fontes que corroboraram o check, como static_analysis, gitleaks, semgrep ou runtime_probe."
+                },
+                "tool_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Ferramenta opcional usada para confirmação, quando aplicável."
+                },
+                "tool_version": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Versão da ferramenta opcional, quando disponível."
+                },
+                "fallback_applied": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ],
+                  "description": "Indica se o agente precisou degradar para fallback por ausência de ferramenta ou limitação de ambiente."
+                },
+                "fallback_reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Explica por que o fallback foi aplicado."
                 },
                 "description": {
                   "type": "string",
@@ -214,21 +411,39 @@
             },
             "references": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": {
+                "type": "string"
+              },
               "description": "Links para OWASP, CWE, NIST ou documentação relevante."
+            },
+            "confidence": {
+              "type": "string",
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ],
+              "description": "Confidence final do check após consolidar evidências disponíveis."
             }
           }
         }
       }
     },
-
     "priority_risks": {
       "description": "Seção narrativa expandindo os top risks do resumo executivo. Cada risco prioritário recebe análise de impacto, cenário de exploração e roadmap de correção.",
       "item_schema": {
-        "rank": { "type": "integer" },
-        "finding_id": { "type": "string" },
-        "title": { "type": "string" },
-        "severity": { "type": "string" },
+        "rank": {
+          "type": "integer"
+        },
+        "finding_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string"
+        },
         "impact_analysis": {
           "type": "string",
           "description": "O que acontece se esta vulnerabilidade for explorada. Cenário concreto."
@@ -240,87 +455,170 @@
         "remediation_roadmap": {
           "type": "object",
           "fields": {
-            "immediate": { "type": "string", "description": "O que fazer nas próximas 24h." },
-            "short_term": { "type": "string", "description": "O que fazer na próxima sprint (1-2 semanas)." },
-            "long_term": { "type": "string", "description": "O que implementar como controle permanente." }
+            "immediate": {
+              "type": "string",
+              "description": "O que fazer nas próximas 24h."
+            },
+            "short_term": {
+              "type": "string",
+              "description": "O que fazer na próxima sprint (1-2 semanas)."
+            },
+            "long_term": {
+              "type": "string",
+              "description": "O que implementar como controle permanente."
+            }
           }
         },
         "effort_estimate": {
           "type": "string",
-          "enum": ["hours", "days", "weeks"],
+          "enum": [
+            "hours",
+            "days",
+            "weeks"
+          ],
           "description": "Esforço estimado para a correção completa."
         }
       }
     },
-
     "technical_recommendations": {
       "description": "Recomendações organizadas por prioridade de implementação, não por domínio.",
       "tiers": {
         "tier_1_immediate": {
           "description": "Correções para findings CRITICAL — implementar em até 48h.",
           "items": {
-            "finding_id": { "type": "string" },
-            "action": { "type": "string" },
-            "code_snippet": { "type": ["string", "null"], "description": "Snippet de código ou config se aplicável." },
-            "verification_command": { "type": "string", "description": "Comando para verificar que a correção foi aplicada." }
+            "finding_id": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string"
+            },
+            "code_snippet": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Snippet de código ou config se aplicável."
+            },
+            "verification_command": {
+              "type": "string",
+              "description": "Comando para verificar que a correção foi aplicada."
+            }
           }
         },
         "tier_2_short_term": {
           "description": "Correções para findings HIGH — implementar em até 2 semanas.",
           "items": {
-            "finding_id": { "type": "string" },
-            "action": { "type": "string" },
-            "code_snippet": { "type": ["string", "null"] },
-            "verification_command": { "type": "string" }
+            "finding_id": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string"
+            },
+            "code_snippet": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "verification_command": {
+              "type": "string"
+            }
           }
         },
         "tier_3_hardening": {
           "description": "Melhorias para findings MEDIUM/LOW — implementar no próximo ciclo.",
           "items": {
-            "finding_id": { "type": "string" },
-            "action": { "type": "string" }
+            "finding_id": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string"
+            }
           }
         },
         "tier_4_best_practices": {
           "description": "Boas práticas gerais e recomendações preventivas.",
           "items": {
-            "domain": { "type": "string" },
-            "practice": { "type": "string" },
-            "reference": { "type": "string" }
+            "domain": {
+              "type": "string"
+            },
+            "practice": {
+              "type": "string"
+            },
+            "reference": {
+              "type": "string"
+            }
           }
         }
       }
     },
-
     "appendix": {
       "description": "Dados complementares para auditabilidade.",
       "fields": {
         "full_check_results": {
           "description": "Tabela completa de todos os 95 checks com status — inclui pass e not_applicable, não apenas findings.",
-          "columns": ["check_id", "domain", "check_name", "status", "severity_if_fail"]
+          "columns": [
+            "check_id",
+            "domain",
+            "check_name",
+            "status",
+            "severity_if_fail"
+          ]
         },
         "audit_metadata": {
-          "run_id": { "type": "string" },
-          "projection_hash_sha256": { "type": "string" },
-          "total_events": { "type": "integer" },
-          "audit_start": { "type": "string", "format": "date-time" },
-          "audit_end": { "type": "string", "format": "date-time" },
-          "agent_model": { "type": "string", "description": "Modelo LLM utilizado." },
-          "playbooks_version": { "type": "string" },
-          "roadmap_schema_version": { "type": "string", "const": "0.4.0" }
+          "run_id": {
+            "type": "string"
+          },
+          "projection_hash_sha256": {
+            "type": "string"
+          },
+          "total_events": {
+            "type": "integer"
+          },
+          "audit_start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "audit_end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "agent_model": {
+            "type": "string",
+            "description": "Modelo LLM utilizado."
+          },
+          "playbooks_version": {
+            "type": "string"
+          },
+          "roadmap_schema_version": {
+            "type": "string",
+            "const": "0.4.0"
+          }
         },
         "domain_coverage": {
           "description": "Mapa de cobertura: quais domínios foram auditados, quais checks foram not_applicable e por quê.",
           "per_domain": {
-            "domain": { "type": "string" },
-            "total_checks": { "type": "integer" },
-            "executed": { "type": "integer" },
-            "not_applicable": { "type": "integer" },
+            "domain": {
+              "type": "string"
+            },
+            "total_checks": {
+              "type": "integer"
+            },
+            "executed": {
+              "type": "integer"
+            },
+            "not_applicable": {
+              "type": "integer"
+            },
             "na_justifications": {
               "type": "array",
               "items": {
-                "check_id": { "type": "string" },
-                "reason": { "type": "string" }
+                "check_id": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
               }
             }
           }
@@ -328,10 +626,8 @@
       }
     }
   },
-
   "score_calculation": {
     "description": "Fórmula determinística para cálculo do security score. O score é calculado bottom-up: check → domain → global.",
-
     "check_scoring": {
       "description": "Cada check recebe uma pontuação baseada no status e na severidade.",
       "rules": {
@@ -364,27 +660,67 @@
         "INFO": 1
       }
     },
-
     "domain_score": {
       "formula": "domain_score = (sum_of_check_points / max_possible_points) × 100",
       "description": "Score por domínio. max_possible_points exclui checks not_applicable.",
       "example": {
         "domain": "input_validation",
         "checks": [
-          { "check_id": "IV-001", "severity": "CRITICAL", "weight": 10, "status": "fail", "points": 0 },
-          { "check_id": "IV-002", "severity": "CRITICAL", "weight": 10, "status": "pass", "points": 10 },
-          { "check_id": "IV-003", "severity": "HIGH", "weight": 7, "status": "pass", "points": 7 },
-          { "check_id": "IV-004", "severity": "HIGH", "weight": 7, "status": "partial", "points": 3.5 },
-          { "check_id": "IV-005", "severity": "HIGH", "weight": 7, "status": "pass", "points": 7 },
-          { "check_id": "IV-006", "severity": "MEDIUM", "weight": 4, "status": "pass", "points": 4 },
-          { "check_id": "IV-007", "severity": "MEDIUM", "weight": 4, "status": "pass", "points": 4 }
+          {
+            "check_id": "IV-001",
+            "severity": "CRITICAL",
+            "weight": 10,
+            "status": "fail",
+            "points": 0
+          },
+          {
+            "check_id": "IV-002",
+            "severity": "CRITICAL",
+            "weight": 10,
+            "status": "pass",
+            "points": 10
+          },
+          {
+            "check_id": "IV-003",
+            "severity": "HIGH",
+            "weight": 7,
+            "status": "pass",
+            "points": 7
+          },
+          {
+            "check_id": "IV-004",
+            "severity": "HIGH",
+            "weight": 7,
+            "status": "partial",
+            "points": 3.5
+          },
+          {
+            "check_id": "IV-005",
+            "severity": "HIGH",
+            "weight": 7,
+            "status": "pass",
+            "points": 7
+          },
+          {
+            "check_id": "IV-006",
+            "severity": "MEDIUM",
+            "weight": 4,
+            "status": "pass",
+            "points": 4
+          },
+          {
+            "check_id": "IV-007",
+            "severity": "MEDIUM",
+            "weight": 4,
+            "status": "pass",
+            "points": 4
+          }
         ],
         "sum_points": 35.5,
         "max_possible": 49,
         "domain_score": 72.4
       }
     },
-
     "global_score": {
       "formula": "global_score = weighted_average(domain_scores, domain_priority_weights)",
       "description": "Média ponderada dos scores de domínio, com peso proporcional à prioridade.",
@@ -396,11 +732,41 @@
       "example": {
         "calculation": "Σ(domain_score × domain_weight) / Σ(domain_weights)",
         "domains": [
-          { "domain": "secrets_config", "priority": "critical", "weight": 3.0, "score": 85.0, "weighted": 255.0 },
-          { "domain": "authentication", "priority": "critical", "weight": 3.0, "score": 60.0, "weighted": 180.0 },
-          { "domain": "input_validation", "priority": "critical", "weight": 3.0, "score": 72.4, "weighted": 217.2 },
-          { "domain": "api_security", "priority": "high", "weight": 2.0, "score": 80.0, "weighted": 160.0 },
-          { "domain": "security_headers", "priority": "medium", "weight": 1.0, "score": 90.0, "weighted": 90.0 }
+          {
+            "domain": "secrets_config",
+            "priority": "critical",
+            "weight": 3.0,
+            "score": 85.0,
+            "weighted": 255.0
+          },
+          {
+            "domain": "authentication",
+            "priority": "critical",
+            "weight": 3.0,
+            "score": 60.0,
+            "weighted": 180.0
+          },
+          {
+            "domain": "input_validation",
+            "priority": "critical",
+            "weight": 3.0,
+            "score": 72.4,
+            "weighted": 217.2
+          },
+          {
+            "domain": "api_security",
+            "priority": "high",
+            "weight": 2.0,
+            "score": 80.0,
+            "weighted": 160.0
+          },
+          {
+            "domain": "security_headers",
+            "priority": "medium",
+            "weight": 1.0,
+            "score": 90.0,
+            "weighted": 90.0
+          }
         ],
         "total_weighted": 902.2,
         "total_weights": 12.0,
@@ -408,15 +774,33 @@
         "classification": "good"
       }
     },
-
     "classification_thresholds": {
-      "critical":  { "range": "0–30",  "label": "Crítico",    "description": "Vulnerabilidades severas requerem ação imediata." },
-      "poor":      { "range": "31–50", "label": "Insuficiente", "description": "Falhas significativas em múltiplos domínios." },
-      "fair":      { "range": "51–70", "label": "Regular",    "description": "Controles básicos presentes mas fraquezas notáveis." },
-      "good":      { "range": "71–85", "label": "Bom",        "description": "Postura sólida com espaço para hardening." },
-      "excellent":  { "range": "86–100","label": "Excelente",  "description": "Controles abrangentes em todos os domínios auditados." }
+      "critical": {
+        "range": "0–30",
+        "label": "Crítico",
+        "description": "Vulnerabilidades severas requerem ação imediata."
+      },
+      "poor": {
+        "range": "31–50",
+        "label": "Insuficiente",
+        "description": "Falhas significativas em múltiplos domínios."
+      },
+      "fair": {
+        "range": "51–70",
+        "label": "Regular",
+        "description": "Controles básicos presentes mas fraquezas notáveis."
+      },
+      "good": {
+        "range": "71–85",
+        "label": "Bom",
+        "description": "Postura sólida com espaço para hardening."
+      },
+      "excellent": {
+        "range": "86–100",
+        "label": "Excelente",
+        "description": "Controles abrangentes em todos os domínios auditados."
+      }
     },
-
     "penalty_rules": {
       "description": "Penalidades que reduzem o score global independente da média ponderada.",
       "rules": [

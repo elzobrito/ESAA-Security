@@ -2,13 +2,69 @@
   "$schema": "playbooks.security.v1",
   "metadata": {
     "name": "PARCER Security Playbooks",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "created_at": "2026-03-04T00:00:00Z",
+    "updated_at": "2026-06-23T00:00:00Z",
     "roadmap_ref": "roadmap.security.json",
+    "roadmap_version": "0.6.0",
     "target_executor": "claude-code-agent",
-    "description": "Instruções executáveis por domínio para agentes autônomos realizarem auditoria de segurança baseada no PARCER Security Auditor."
+    "description": "Instruções executáveis por domínio para agentes autônomos realizarem auditoria de segurança orientada a código-fonte local. O escopo primário é inspeção de repositório e arquivos de configuração versionados; verificações híbridas só confirmam comportamento real de runtime quando endpoint_base_url é fornecido. Cada check é determinístico, com pass/fail criteria explícitos e referência ao check_id.",
+    "audit_posture": {
+      "primary_mode": "static_local_code",
+      "description": "Esta auditoria opera sobre o repositório local. O que é medido é a postura observável no código-fonte e nas configurações versionadas — não a postura efetiva do ambiente de produção, do provedor cloud ou de controles externos (branch protection em GitHub settings, WAF em CDN, network policies aplicadas no cluster, secrets em KMS). Quando um controle existe apenas fora do repo, o check deve marcar como partial ou not_applicable com confidence=low e explicar a limitação em evidence.description.",
+      "runtime_confirmation": "Checks com strategy=hybrid executam por padrão apenas a porção static_analysis sobre o código. A porção runtime (curl, HTTP probing) é estritamente opt-in e só é executada quando endpoint_base_url é fornecido pelo operador. A ausência de endpoint nunca deve ser tratada como falha."
+    },
+    "changelog": [
+      {
+        "version": "1.2.0",
+        "date": "2026-06-23",
+        "changes": [
+          "Precisão-first: checks HIGH/CRITICAL agora exigem false_positive_guidance explícito; guidance faltante foi preenchido nos domínios mais sensíveis.",
+          "Novo bloco tooling opcional por check elegível, com preferred_tools, fallback_mode, capability_requirement, evidence_requirements e confidence_effect.",
+          "Adicionado tool_capabilities_path ao global_input_contract para consumo do artefato reports/phase1/tool-capabilities.json.",
+          "result_schema.evidence expandido para tipos de evidência padronizados, metadata de ferramenta e indicação de fallback.",
+          "Execution policy ganhou tooling_policy com fallback determinístico: ferramenta ausente nunca vira fail nem reduz score; apenas reduz profundidade de confirmação.",
+          "Checks frágeis de authorization, api_security, input_validation, frontend_security e ai_llm_security receberam guidance operacional de confidence e triagem."
+        ]
+      },
+      {
+        "version": "1.1.1",
+        "date": "2026-04-09",
+        "changes": [
+          "Correção: changelog da v1.1.0 informava '91 → 106'; o correto é '95 → 108'.",
+          "Adicionado audit_posture na metadata: escopo primário é static_local_code; runtime é opt-in via endpoint_base_url.",
+          "execution_policy reformulado: strategy=hybrid agora é explicitamente 'static-first', com runtime apenas confirmatório quando endpoint disponível.",
+          "SEC-021 (infrastructure) e SEC-022 (devsecops) reformulados como 'postura observável no repositório/config versionada', não postura efetiva do ambiente.",
+          "Reforço de confidence guidance em checks heurísticos de SEC-013, SEC-014, SEC-015, SEC-025 e SEC-026: regex amplo → confidence=medium por padrão; match sintático inequívoco → high.",
+          "false_positive_guidance expandido nos checks mais ruidosos (IV-001, IV-002, AZ-001, AZ-002, AP-002).",
+          "Linguagem que sugeria 'validação de produção real' reescrita para claims rastreáveis sobre o que o código revela."
+        ]
+      },
+      {
+        "version": "1.1.0",
+        "date": "2026-04-09",
+        "changes": [
+          "Novo playbook business_logic (BL-001..004) para OWASP API6:2023.",
+          "authentication: +AU-009 (JWT weaknesses).",
+          "api_security: +AP-008 (mass assignment) e AP-009 (unsafe API consumption).",
+          "input_validation: +IV-008 (deserialization), IV-009 (XXE), IV-010 (open redirect).",
+          "infrastructure: +IF-007 (container hardening).",
+          "ai_llm_security: +AI-006 (model/data provenance) e AI-007 (token budget).",
+          "global_input_contract: exclude_patterns promovido para global (antes era só em SC-001).",
+          "result_schema: adicionado campo confidence (high/medium/low) e evidence caps.",
+          "execution_policy: adicionado bloco com fallback strategies e evidence caps.",
+          "Total de checks: 95 → 108."
+        ]
+      },
+      {
+        "version": "1.0.0",
+        "date": "2026-03-04",
+        "changes": [
+          "Baseline inicial com 16 playbooks e 95 checks."
+        ]
+      }
+    ]
   },
-
   "global_input_contract": {
     "required": {
       "repo_path": {
@@ -20,8 +76,9 @@
     "optional": {
       "endpoint_base_url": {
         "type": "string",
-        "description": "URL base da aplicação em execução para testes dinâmicos.",
-        "example": "http://localhost:3000"
+        "description": "URL base de uma instância em execução para confirmar comportamento runtime (strategy=hybrid). Estritamente opt-in: quando ausente, checks hybrid rodam apenas a parte static_analysis sem penalização. Não é requisito para a auditoria — a maioria dos playbooks é executável sem endpoint.",
+        "example": "http://localhost:3000",
+        "usage_note": "Fornecer apenas quando há instância local controlada disponível. Nunca apontar para produção sem autorização formal."
       },
       "docs_path": {
         "type": "string",
@@ -37,48 +94,179 @@
         "type": "string",
         "description": "Caminho para configs de CI/CD (.github/workflows, .gitlab-ci.yml, Jenkinsfile).",
         "example": "/home/user/project/.github/workflows"
+      },
+      "endpoints_inventory_path": {
+        "type": "string",
+        "description": "Caminho para endpoints-inventory.json produzido por SEC-003. Reutilizado por checks que iteram sobre rotas (AZ-001, AP-001, BL-*).",
+        "example": "/home/user/project/reports/phase1/endpoints-inventory.json"
+      },
+      "tool_capabilities_path": {
+        "type": "string",
+        "description": "Caminho para reports/phase1/tool-capabilities.json, artefato que registra SO, shell, utilitários básicos e ferramentas opcionais detectadas no ambiente local. Usado para decidir tooling opcional sem improviso.",
+        "example": "/home/user/project/reports/phase1/tool-capabilities.json"
       }
+    },
+    "exclude_patterns_default": {
+      "description": "Aplicado por padrão em TODOS os checks com strategy=static_analysis. Checks podem adicionar patterns próprios mas não desabilitar estes.",
+      "patterns": [
+        "**/node_modules/**",
+        "**/.git/**",
+        "**/vendor/**",
+        "**/dist/**",
+        "**/build/**",
+        "**/target/**",
+        "**/.venv/**",
+        "**/venv/**",
+        "**/__pycache__/**",
+        "**/.mypy_cache/**",
+        "**/.pytest_cache/**",
+        "**/coverage/**",
+        "**/.next/**",
+        "**/.nuxt/**",
+        "**/*.min.js",
+        "**/*.min.css",
+        "**/*.map"
+      ],
+      "test_exclusions_for_non_test_checks": [
+        "**/*test*/**",
+        "**/*spec*/**",
+        "**/*mock*/**",
+        "**/fixtures/**",
+        "**/__tests__/**",
+        "**/examples/**"
+      ]
     }
   },
-
+  "execution_policy": {
+    "primary_mode": "static_local_code",
+    "primary_mode_description": "A auditoria é executada contra o repositório e configurações versionadas. O que está FORA do repo (secrets em KMS, branch protection em GitHub settings, WAF em CDN, network policies aplicadas no cluster) não é diretamente observável e deve ser tratado como 'inferível por config local' com confidence reduzido.",
+    "strategy_definitions": {
+      "static_analysis": "Análise puramente sobre arquivos do repo. Determinística. Modo default e suficiente para a maioria dos checks.",
+      "tool_execution": "Executa ferramenta externa (npm audit, pip-audit, trivy, etc.) sobre artefatos locais (lockfiles, manifests, Dockerfiles). Pode requerer instalação prévia. Não depende de endpoint remoto.",
+      "hybrid": "Static-first: a parte principal é análise de código/config local. A parte runtime (curl, HTTP probing) é estritamente opt-in e só executa quando endpoint_base_url é fornecido. A ausência de endpoint NÃO é falha — o check completa com os achados estáticos e marca a porção runtime como not_applicable com reason='endpoint_not_provided'.",
+      "dynamic": "Puramente runtime. Usado apenas em situações excepcionais onde código/config não revelam o comportamento. Pula com not_applicable se endpoint_base_url ausente. Neste playbook, preferir sempre static ou hybrid sobre dynamic puro."
+    },
+    "local_code_boundary": {
+      "in_scope": [
+        "Arquivos de código-fonte em qualquer linguagem presente no repo",
+        "Manifests de dependências e lockfiles",
+        "Dockerfiles, docker-compose.yml, Kubernetes manifests, terraform files (quando versionados)",
+        "Configurações de CI (.github/workflows, .gitlab-ci.yml, Jenkinsfile)",
+        "Pre-commit hooks, CODEOWNERS, .gitignore",
+        "Documentação versionada no repo"
+      ],
+      "out_of_scope_declare_as_inferred": [
+        "Estado real do provedor cloud (AWS/Azure/GCP)",
+        "Regras reais de security groups / firewalls aplicadas",
+        "WAF rules efetivamente ativas na CDN",
+        "Branch protection configurada em GitHub/GitLab settings (não versionada)",
+        "Secrets efetivamente carregados em KMS / Vault / Secrets Manager",
+        "Certificados TLS em uso real em produção",
+        "Network policies efetivamente aplicadas no cluster",
+        "Headers HTTP realmente enviados em produção (só confirmáveis via endpoint_base_url)"
+      ],
+      "handling_rule": "Quando o controle está fora do repo, o check deve: (1) buscar evidência documental no repo (arquivo de config, docs, IaC); (2) se encontrada, emitir pass/fail com confidence=medium e descrever no evidence.description que a validação é inferência por config local; (3) se não encontrada, emitir partial com confidence=low explicando que o controle pode existir externamente mas não é observável."
+    },
+    "fallback_policy": {
+      "tool_unavailable": "Se tool_execution falha por ferramenta ausente, degradar para static_analysis equivalente e marcar status=partial, confidence=low, evidence.description explicando a degradação.",
+      "endpoint_unavailable": "Comportamento esperado e não é falha. Executar a porção static normalmente. Marcar porções runtime como status=not_applicable com reason='endpoint_not_provided'. O resultado final do check é a agregação dos achados estáticos, sem penalizar por ausência de runtime.",
+      "file_not_found": "Se targets não existem no repo, marcar check como not_applicable com reason='targets_absent'. Não é falha do check — é sinal de que o domínio não se aplica ao projeto.",
+      "external_control_only": "Quando o único indício de um controle está em sistema externo não versionado (ex: regra de branch protection definida apenas em GitHub settings), marcar partial com confidence=low e não emitir fail com confidence=high."
+    },
+    "evidence_caps": {
+      "max_files_per_finding": 20,
+      "max_lines_per_file_snippet": 10,
+      "max_commands_output_bytes": 50000,
+      "truncation_marker": "[... truncado por evidence_caps ...]",
+      "rationale": "Impede que repos grandes estourem contexto do agente."
+    },
+    "confidence_guidance": {
+      "high": "Match sintático inequívoco e auto-suficiente no código: literal hardcoded, flag explicitamente ausente/inversa em arquivo de config versionado, algoritmo explicitamente inseguro, import de API perigosa com input direto. Só pode ser emitido quando o código-fonte sozinho prova o achado.",
+      "medium": "Padrão provável no código mas dependente de contexto: regex amplo, inferência semântica, heurística sobre estrutura do projeto. Default para a maioria dos matches heurísticos.",
+      "low": "Detecção fracamente corroborada: pattern match sem contexto, controle possivelmente existente fora do repo (cloud/CDN/GH settings), inferência por ausência. Deve ser a maioria dos findings sobre controles externos."
+    },
+    "false_positive_handling": "Todo check HIGH ou CRITICAL deve declarar false_positive_guidance explícito, exceto se houver exceção formal documentada. Findings confidence=low sem corroboração devem ser reclassificados como INFO em SEC-031. Achados heurísticos severos sem evidência direta ou confirmação por ferramenta/runtime não devem subir para confidence=high.",
+    "tooling_policy": {
+      "detection_artifact": "reports/phase1/tool-capabilities.json",
+      "capability_states": [
+        "available",
+        "unavailable",
+        "not_applicable"
+      ],
+      "default_decision_order": [
+        "tool_execution_or_local_scanner_when_available",
+        "static_analysis_fallback",
+        "runtime_confirmation_only_when_endpoint_opt_in"
+      ],
+      "supported_tool_classes": [
+        "secrets_scanners",
+        "dependency_vulnerability_scanners",
+        "sast_pattern_scanners",
+        "container_iac_scanners"
+      ],
+      "disallowed_default_classes": [
+        "network_scanners",
+        "active_exploitation_frameworks",
+        "intrusive_dast_against_uncontrolled_targets"
+      ],
+      "confidence_rule": "Confirmação por ferramenta local pode elevar confidence quando o artefato apontado coincide com o código/config local. Ferramenta ausente nunca reduz score e nunca transforma o check em fail; o agente deve degradar deterministicamente para static_analysis ou partial conforme fallback_mode."
+    }
+  },
   "result_schema": {
     "per_check": {
       "check_id": "string",
       "check_name": "string",
       "status": "enum: pass | fail | partial | not_applicable | error",
       "severity_if_fail": "enum: CRITICAL | HIGH | MEDIUM | LOW | INFO",
+      "confidence": "enum: high | medium | low",
       "evidence": {
-        "files": ["string"],
-        "lines": ["string"],
-        "commands_output": ["string"],
+        "files": "array<string> (max 20 per evidence_caps)",
+        "lines": "array<string> (file:line:snippet format)",
+        "commands_output": "array<string> (truncated to 50KB per evidence_caps)",
+        "evidence_types": "array<enum: code_snippet | config_artifact | tool_output | runtime_probe | doc_reference>",
+        "evidence_sources": "array<string> (ex: static_analysis, semgrep, gitleaks, runtime_probe)",
+        "tool_name": "string|null (when tooling optional is used)",
+        "tool_version": "string|null (when available)",
+        "fallback_applied": "boolean|null",
+        "fallback_reason": "string|null",
         "description": "string"
       },
-      "remediation": "string"
+      "remediation": "string",
+      "cross_refs": "array<string> (check_ids from other domains that overlap, e.g. ['SC-008', 'LM-001'])"
     },
     "per_task": {
       "task_id": "string",
       "domain": "string",
+      "playbook_version": "string",
       "checks_total": "integer",
       "checks_pass": "integer",
       "checks_fail": "integer",
       "checks_partial": "integer",
       "checks_na": "integer",
+      "checks_error": "integer",
       "worst_severity": "enum: CRITICAL | HIGH | MEDIUM | LOW | INFO | NONE",
-      "results": ["per_check"]
+      "duration_ms": "integer",
+      "results": [
+        "per_check"
+      ]
     }
   },
-
   "playbooks": {
-
     "secrets_config": {
       "task_ref": "SEC-010",
       "domain": "secrets_config",
       "title": "Secrets & Configuração",
       "priority": "critical",
       "input_requirements": {
-        "required": ["repo_path"],
-        "optional": ["endpoint_base_url"]
+        "required": [
+          "repo_path"
+        ],
+        "optional": [
+          "endpoint_base_url",
+          "tool_capabilities_path"
+        ]
       },
+      "contextual_note": "Este playbook decide a partir do código local. Middleware global, conventions do framework e policy layers podem proteger rotas sem aparecer no mesmo arquivo da rota; por isso, matches heurísticos devem default para confidence=medium, e ausência de evidência local inequívoca não basta para confidence=high. Quando reports/phase1/tool-capabilities.json estiver disponível, usá-lo para decidir quais confirmações por ferramenta são realmente executáveis no ambiente local; ausência do artefato reduz apenas a profundidade de confirmação, nunca a completude estática.",
       "checks": [
         {
           "check_id": "SC-001",
@@ -106,7 +294,20 @@
             ],
             "pass_criteria": "Nenhuma credencial real encontrada em código-fonte. Valores encontrados são placeholders, referências a env vars, ou constantes de teste.",
             "fail_criteria": "Qualquer credencial real, token válido ou chave privada encontrada em código-fonte.",
-            "false_positive_guidance": "Constantes como 'password' em nomes de campo de formulário, variáveis que leem de env vars (process.env.X, os.getenv()), valores em arquivos de teste com prefixo 'test_' ou 'mock_' são falsos positivos."
+            "false_positive_guidance": "Constantes como 'password' em nomes de campo de formulário, variáveis que leem de env vars (process.env.X, os.getenv()), valores em arquivos de teste com prefixo 'test_' ou 'mock_' são falsos positivos.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial.",
+            "tooling": {
+              "preferred_tools": [
+                "gitleaks"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "secrets_scanners",
+              "evidence_requirements": [
+                "tool_output",
+                "code_snippet"
+              ],
+              "confidence_effect": "Match corroborado por scanner local e snippet direto pode elevar confidence para high; ausência da ferramenta mantém a inspeção estática sem penalização."
+            }
           },
           "remediation": "Mover todos os segredos para variáveis de ambiente ou secrets manager. Rotacionar imediatamente qualquer segredo que tenha sido commitado. Adicionar patterns ao .gitignore."
         },
@@ -123,7 +324,9 @@
               "Verificar se chaves expostas no frontend são read-only/public por design (ex: Stripe publishable key, Firebase config)."
             ],
             "pass_criteria": "Nenhuma chave secreta no código frontend. Apenas chaves públicas by-design (publishable keys) presentes.",
-            "fail_criteria": "Chaves secretas, tokens de acesso ou credenciais de backend encontradas em código acessível ao browser."
+            "fail_criteria": "Chaves secretas, tokens de acesso ou credenciais de backend encontradas em código acessível ao browser.",
+            "false_positive_guidance": "Confirmar se o match representa segredo real em código de produção. Placeholders, env vars, fixtures e exemplos documentais não devem ser tratados como fail conclusivo.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Mover chamadas que requerem chaves secretas para o backend. Usar proxy endpoints. Chaves de frontend devem ser exclusivamente read-only e escopadas."
         },
@@ -140,7 +343,9 @@
               "Se .env encontrado: verificar se contém valores reais ou apenas placeholders/exemplos."
             ],
             "pass_criteria": ".env não presente no repositório OU presente apenas como .env.example com placeholders. .gitignore inclui .env patterns.",
-            "fail_criteria": "Arquivo .env com valores reais commitado. .gitignore não protege arquivos .env."
+            "fail_criteria": "Arquivo .env com valores reais commitado. .gitignore não protege arquivos .env.",
+            "false_positive_guidance": "Confirmar se o match representa segredo real em código de produção. Placeholders, env vars, fixtures e exemplos documentais não devem ser tratados como fail conclusivo.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Adicionar .env* ao .gitignore. Remover do histórico git com git filter-branch ou BFG. Rotacionar credenciais expostas. Manter apenas .env.example com placeholders."
         },
@@ -157,7 +362,8 @@
               "Verificar se credentials:true está combinado com origin:* (vulnerabilidade real)."
             ],
             "pass_criteria": "CORS configurado com whitelist de origens específicas. Wildcard não usado com credentials.",
-            "fail_criteria": "Access-Control-Allow-Origin: * combinado com Access-Control-Allow-Credentials: true. Ou wildcard em endpoints autenticados."
+            "fail_criteria": "Access-Control-Allow-Origin: * combinado com Access-Control-Allow-Credentials: true. Ou wildcard em endpoints autenticados.",
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
           },
           "remediation": "Configurar CORS com whitelist explícita de origens permitidas. Nunca combinar wildcard com credentials. Diferentes configs para ambientes dev/staging/prod."
         },
@@ -174,7 +380,9 @@
               "Verificar configs de produção específicas: docker-compose.prod.yml, Dockerfile, deployment manifests."
             ],
             "pass_criteria": "Debug desabilitado em configs de produção. Erros retornam mensagens genéricas em produção. Stack traces não expostos.",
-            "fail_criteria": "DEBUG=true em configuração de produção. Stack traces ou detalhes internos expostos em respostas de erro."
+            "fail_criteria": "DEBUG=true em configuração de produção. Stack traces ou detalhes internos expostos em respostas de erro.",
+            "false_positive_guidance": "Confirmar se o match representa segredo real em código de produção. Placeholders, env vars, fixtures e exemplos documentais não devem ser tratados como fail conclusivo.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Garantir DEBUG=false em produção. Implementar error handler que retorna mensagens genéricas ao client e loga detalhes internamente. Usar variáveis de ambiente por ambiente."
         },
@@ -191,7 +399,9 @@
               "Verificar se credenciais padrão são exclusivas de ambiente de desenvolvimento e não alcançam produção."
             ],
             "pass_criteria": "Nenhuma credencial padrão em código de produção. Seeds/fixtures de dev claramente isolados de configs de produção.",
-            "fail_criteria": "Credenciais padrão em configurações que podem alcançar produção. Banco de dados com passwords triviais em docker-compose sem override de produção."
+            "fail_criteria": "Credenciais padrão em configurações que podem alcançar produção. Banco de dados com passwords triviais em docker-compose sem override de produção.",
+            "false_positive_guidance": "Confirmar se o match representa segredo real em código de produção. Placeholders, env vars, fixtures e exemplos documentais não devem ser tratados como fail conclusivo.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Substituir todas as credenciais padrão por valores gerados. Exigir variáveis de ambiente para credenciais em todos os ambientes. Usar secret generation no deploy."
         },
@@ -208,7 +418,8 @@
               "diff entre config.example e config real (se ambos existirem)."
             ],
             "pass_criteria": "Configs de exemplo são claramente templates. Configs de produção existem separadamente e não são derivações diretas sem modificação.",
-            "fail_criteria": "Config de produção é cópia direta do exemplo. Dockerfile usa config de exemplo em build de produção."
+            "fail_criteria": "Config de produção é cópia direta do exemplo. Dockerfile usa config de exemplo em build de produção.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Manter configs de exemplo apenas como referência. Gerar configs de produção via CI/CD com valores injetados de secrets manager."
         },
@@ -225,21 +436,26 @@
               "Verificar se structured logging mascara campos sensíveis."
             ],
             "pass_criteria": "Logs não contêm dados sensíveis. Há sanitização ou redação de campos sensíveis antes de logar. Headers de auth não são logados.",
-            "fail_criteria": "Variáveis com nomes sensíveis logadas diretamente. Request headers incluindo Authorization logados sem redação."
+            "fail_criteria": "Variáveis com nomes sensíveis logadas diretamente. Request headers incluindo Authorization logados sem redação.",
+            "false_positive_guidance": "Confirmar se o match representa segredo real em código de produção. Placeholders, env vars, fixtures e exemplos documentais não devem ser tratados como fail conclusivo.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar middleware de redação de logs. Mascarar campos sensíveis (password → '***', tokens → primeiros 4 chars + '...'). Nunca logar request/response bodies completos em produção."
         }
       ]
     },
-
     "dependencies_supply_chain": {
       "task_ref": "SEC-011",
       "domain": "dependencies_supply_chain",
       "title": "Dependências e Supply Chain",
       "priority": "high",
       "input_requirements": {
-        "required": ["repo_path"],
-        "optional": []
+        "required": [
+          "repo_path"
+        ],
+        "optional": [
+          "tool_capabilities_path"
+        ]
       },
       "checks": [
         {
@@ -257,7 +473,23 @@
               "Classificar findings por severidade: critical, high, medium, low."
             ],
             "pass_criteria": "Zero vulnerabilidades críticas ou altas sem mitigação documentada.",
-            "fail_criteria": "Vulnerabilidades críticas ou altas presentes sem fix disponível ou mitigação."
+            "fail_criteria": "Vulnerabilidades críticas ou altas presentes sem fix disponível ou mitigação.",
+            "false_positive_guidance": "Confirmar se a dependência afetada pertence ao caminho executado ou imagem final. Dependências de dev, exemplos ou referências documentais exigem triagem antes de concluir fail.",
+            "confidence_guidance": "Usar o output da ferramenta como corroboração local, não como verdade cega. Subir confidence somente quando o pacote/arquivo/artefato apontado coincide com o código auditado; finding sem ferramenta disponível deve degradar para partial/low conforme fallback.",
+            "tooling": {
+              "preferred_tools": [
+                "osv-scanner",
+                "npm audit",
+                "pip-audit"
+              ],
+              "fallback_mode": "partial_with_static_manifest_review",
+              "capability_requirement": "dependency_vulnerability_scanners",
+              "evidence_requirements": [
+                "tool_output",
+                "config_artifact"
+              ],
+              "confidence_effect": "Vulnerabilidade sobe de medium para high apenas quando a ferramenta aponta pacote e versão presentes no lockfile/manifests locais."
+            }
           },
           "remediation": "Atualizar dependências vulneráveis. Se update não possível, documentar mitigação. Configurar dependabot/renovate para updates automáticos."
         },
@@ -274,7 +506,8 @@
               "Verificar se dependência abandonada tem alternativa mantida."
             ],
             "pass_criteria": "Nenhuma dependência crítica abandonada. Dependências sem manutenção recente têm alternativas identificadas.",
-            "fail_criteria": "Dependências em paths críticos (auth, crypto, parsing) sem manutenção há mais de 2 anos."
+            "fail_criteria": "Dependências em paths críticos (auth, crypto, parsing) sem manutenção há mais de 2 anos.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Substituir dependências abandonadas por alternativas mantidas. Se substituição não viável, documentar risco e monitorar CVEs manualmente."
         },
@@ -291,7 +524,9 @@
               "Verificar se há pacotes com escopos/@orgs suspeitos que imitam pacotes oficiais."
             ],
             "pass_criteria": "Todas as dependências correspondem a pacotes legítimos e bem estabelecidos.",
-            "fail_criteria": "Qualquer dependência com nome suspeitamente similar a pacote popular mas de autor diferente."
+            "fail_criteria": "Qualquer dependência com nome suspeitamente similar a pacote popular mas de autor diferente.",
+            "false_positive_guidance": "Confirmar se a dependência afetada pertence ao caminho executado ou imagem final. Dependências de dev, exemplos ou referências documentais exigem triagem antes de concluir fail.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Remover pacotes suspeitos imediatamente. Auditar o que o pacote faz. Verificar se houve execução de postinstall scripts maliciosos."
         },
@@ -307,7 +542,8 @@
               "Verificar se lockfile está atualizado: comparar timestamps do manifest vs lockfile."
             ],
             "pass_criteria": "Lockfile presente, commitado no repositório e consistente com o manifest.",
-            "fail_criteria": "Lockfile ausente ou no .gitignore. Manifest modificado sem atualização do lockfile."
+            "fail_criteria": "Lockfile ausente ou no .gitignore. Manifest modificado sem atualização do lockfile.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Gerar lockfile e commitar no repositório. Configurar CI para falhar se lockfile estiver desatualizado. Usar --frozen-lockfile no CI."
         },
@@ -323,7 +559,8 @@
               "Identificar dependências que executam native code ou postinstall scripts: grep -r 'postinstall\\|preinstall\\|install.*script' ${repo_path}/node_modules/*/package.json 2>/dev/null | head -20"
             ],
             "pass_criteria": "Dependências diretas são conhecidas e justificadas. Scripts de postinstall são de pacotes confiáveis.",
-            "fail_criteria": "Grande número de dependências transitivas sem visibilidade. Scripts de postinstall de pacotes desconhecidos."
+            "fail_criteria": "Grande número de dependências transitivas sem visibilidade. Scripts de postinstall de pacotes desconhecidos.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Auditar dependências diretas periodicamente. Usar ferramentas como socket.dev ou snyk para visibilidade de supply chain."
         },
@@ -339,22 +576,41 @@
               "Verificar se há pinning de versões em scripts de setup."
             ],
             "pass_criteria": "Docker images com tags fixas. CI usa lockfile. Dependências de sistema pinadas.",
-            "fail_criteria": "Docker FROM com :latest. CI usa npm install ao invés de npm ci. Versões flutuantes em setup."
+            "fail_criteria": "Docker FROM com :latest. CI usa npm install ao invés de npm ci. Versões flutuantes em setup.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial.",
+            "tooling": {
+              "preferred_tools": [
+                "trivy"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "container_iac_scanners",
+              "evidence_requirements": [
+                "tool_output",
+                "config_artifact"
+              ],
+              "confidence_effect": "Corroboração por scanner de imagem/Dockerfile fortalece a evidência; ausência da ferramenta não converte o check em fail."
+            }
           },
           "remediation": "Pinar todas as versões de base images. Usar npm ci / pip install --require-hashes. Documentar processo de build reproduzível."
         }
-      ]
+      ],
+      "contextual_note": "Este playbook é static-first e deve permanecer executável apenas com código/config local. Quando reports/phase1/tool-capabilities.json estiver disponível, usá-lo para decidir quais confirmações por ferramenta são realmente executáveis no ambiente local; ausência do artefato reduz apenas a profundidade de confirmação, nunca a completude estática."
     },
-
     "authentication": {
       "task_ref": "SEC-012",
       "domain": "authentication",
       "title": "Autenticação",
       "priority": "critical",
       "input_requirements": {
-        "required": ["repo_path"],
-        "optional": ["endpoint_base_url"]
+        "required": [
+          "repo_path"
+        ],
+        "optional": [
+          "endpoint_base_url",
+          "tool_capabilities_path"
+        ]
       },
+      "contextual_note": "Este playbook é static-first. Controles de gateway, CDN ou API management que não estejam versionados no repositório só podem ser inferidos com confidence reduzido. A sonda runtime, quando endpoint_base_url existe, serve para confirmar comportamento; sua ausência não é falha. Quando reports/phase1/tool-capabilities.json estiver disponível, usá-lo para decidir quais confirmações por ferramenta são realmente executáveis no ambiente local; ausência do artefato reduz apenas a profundidade de confirmação, nunca a completude estática.",
       "checks": [
         {
           "check_id": "AU-001",
@@ -369,7 +625,9 @@
               "Verificar se há save direto de password sem hash: grep -rn 'password.*save\\|insert.*password\\|create.*password' ${repo_path}"
             ],
             "pass_criteria": "Todas as senhas passam por hash com algoritmo seguro (bcrypt/argon2/scrypt) antes de armazenamento.",
-            "fail_criteria": "Qualquer path de código onde senha é armazenada sem hash. Uso de MD5/SHA1/SHA256 sem salt para senhas."
+            "fail_criteria": "Qualquer path de código onde senha é armazenada sem hash. Uso de MD5/SHA1/SHA256 sem salt para senhas.",
+            "false_positive_guidance": "Verificar se o controle não está implementado em camada central, provider externo ou middleware herdado antes de concluir ausência real do controle.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar bcrypt (cost >= 12) ou argon2id para hash de senhas. Nunca usar MD5/SHA para passwords. Migrar senhas existentes em texto plano."
         },
@@ -386,7 +644,9 @@
               "bcrypt: cost >= 12. argon2: memory >= 64MB, iterations >= 3."
             ],
             "pass_criteria": "Hash com bcrypt (cost >= 12) ou argon2id com parâmetros adequados. Salt único por senha.",
-            "fail_criteria": "Uso de MD5/SHA sem salt. bcrypt com cost < 10. Argon2 com parâmetros fracos."
+            "fail_criteria": "Uso de MD5/SHA sem salt. bcrypt com cost < 10. Argon2 com parâmetros fracos.",
+            "false_positive_guidance": "Verificar se o controle não está implementado em camada central, provider externo ou middleware herdado antes de concluir ausência real do controle.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Migrar para bcrypt cost=12+ ou argon2id. Se bcrypt, salt é automático. Implementar rehash transparente no login."
         },
@@ -402,7 +662,8 @@
               "Verificar se MFA é obrigatório para contas admin/privilegiadas."
             ],
             "pass_criteria": "MFA disponível para todos os usuários. Obrigatório para contas privilegiadas.",
-            "fail_criteria": "Nenhuma implementação de MFA encontrada. MFA ausente para contas admin."
+            "fail_criteria": "Nenhuma implementação de MFA encontrada. MFA ausente para contas admin.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar TOTP com speakeasy/pyotp. Exigir MFA para admin. Oferecer MFA opt-in para todos. Fornecer recovery codes."
         },
@@ -420,7 +681,9 @@
               "Verificar se reset envia senha em texto plano por email."
             ],
             "pass_criteria": "Token criptograficamente seguro, com expiração (< 1h), single-use, enviado por canal seguro. Senha nunca enviada em texto plano.",
-            "fail_criteria": "Token previsível ou sem expiração. Senha enviada em texto plano. Token reutilizável. Links de reset sem HTTPS."
+            "fail_criteria": "Token previsível ou sem expiração. Senha enviada em texto plano. Token reutilizável. Links de reset sem HTTPS.",
+            "false_positive_guidance": "Verificar se o controle não está implementado em camada central, provider externo ou middleware herdado antes de concluir ausência real do controle.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Gerar token com crypto.randomBytes(32). Expirar em 30-60min. Invalidar após uso. Enviar apenas link, nunca senha."
         },
@@ -437,7 +700,9 @@
               "Verificar se há idle timeout além de absolute timeout."
             ],
             "pass_criteria": "Sessões com TTL absoluto (< 24h para sessões normais, < 15min idle para admin). JWT com expiração. Refresh token com rotação.",
-            "fail_criteria": "Sessões sem expiração configurada. JWT sem campo exp. Sem idle timeout."
+            "fail_criteria": "Sessões sem expiração configurada. JWT sem campo exp. Sem idle timeout.",
+            "false_positive_guidance": "Verificar se o controle não está implementado em camada central, provider externo ou middleware herdado antes de concluir ausência real do controle.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Configurar TTL para sessões (8-24h normal, 15min idle admin). JWT com exp obrigatório. Implementar refresh token rotation."
         },
@@ -454,7 +719,9 @@
               "Verificar se há lockout progressivo (delay crescente ou lock temporário)."
             ],
             "pass_criteria": "Rate limit em endpoint de login. Lockout após N tentativas falhas. Delay progressivo implementado.",
-            "fail_criteria": "Nenhuma proteção contra brute force em login. Rate limit ausente em endpoints de autenticação."
+            "fail_criteria": "Nenhuma proteção contra brute force em login. Rate limit ausente em endpoints de autenticação.",
+            "false_positive_guidance": "Verificar se o controle não está implementado em camada central, provider externo ou middleware herdado antes de concluir ausência real do controle.",
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
           },
           "remediation": "Implementar rate limit (ex: 5 tentativas/min por IP+username). Lockout progressivo após 5 falhas. CAPTCHA após 3 falhas. Notificar usuário de tentativas."
         },
@@ -471,7 +738,9 @@
               "Buscar por tokens 'never expire' ou sem campo de expiração em schema de banco."
             ],
             "pass_criteria": "Todos os tokens têm expiração definida. Refresh tokens rotacionados. API keys com mecanismo de revogação.",
-            "fail_criteria": "Tokens emitidos sem expiração. API keys permanentes sem rotação. Refresh tokens reutilizáveis indefinidamente."
+            "fail_criteria": "Tokens emitidos sem expiração. API keys permanentes sem rotação. Refresh tokens reutilizáveis indefinidamente.",
+            "false_positive_guidance": "Verificar se o controle não está implementado em camada central, provider externo ou middleware herdado antes de concluir ausência real do controle.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Definir expiração em todos os tokens. Access token: 15-60min. Refresh token: 7-30 dias com rotação. API keys: revogáveis com auditoria."
         },
@@ -487,22 +756,61 @@
               "Verificar se aceita session ID via URL parameter: grep -rn 'session.*url\\|sid.*query\\|PHPSESSID.*GET' ${repo_path}"
             ],
             "pass_criteria": "Session ID regenerado após autenticação. Session ID nunca aceito via URL. Framework com proteção nativa ativada.",
-            "fail_criteria": "Session ID não regenerado após login. Session ID aceito via query parameter."
+            "fail_criteria": "Session ID não regenerado após login. Session ID aceito via query parameter.",
+            "false_positive_guidance": "Verificar se o controle não está implementado em camada central, provider externo ou middleware herdado antes de concluir ausência real do controle.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Regenerar session ID imediatamente após login bem-sucedido. Rejeitar session IDs via URL. Usar apenas cookies httpOnly para transporte."
+        },
+        {
+          "check_id": "AU-009",
+          "name": "Fraquezas específicas de JWT",
+          "severity_if_fail": "CRITICAL",
+          "owasp_refs": [
+            "A02:2021",
+            "A07:2021",
+            "CWE-347",
+            "CWE-798"
+          ],
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Identificar biblioteca JWT em uso: grep -rn --include='*.{js,ts,py,go,java,php,rb}' -iE '(jsonwebtoken|jose|pyjwt|python-jose|go-jwt|jjwt|firebase/php-jwt|ruby-jwt)' ${repo_path}",
+              "CHECK alg=none aceito: grep -rn -iE '(jwt\\.verify|jwt\\.decode|JWT::decode|Jwts\\.parser)' ${repo_path} | revisar cada uso e verificar se algorithms/algo é passado e NÃO inclui 'none'. Em pyjwt: jwt.decode(..., algorithms=['HS256']) é obrigatório; ausência do parâmetro é fail.",
+              "CHECK HS256 com segredo fraco: grep -rn -iE '(JWT_SECRET|jwtSecret|jwt.*secret|signing.*key)\\s*[:=]' ${repo_path} e verificar comprimento do literal (< 32 bytes = fail) ou se é lido de env var (ver SC-001).",
+              "CHECK algorithm confusion (RS256 → HS256): se código usa RS256 para sign mas jwt.verify não força algorithms explicitamente, atacante pode enviar token HS256 com chave pública como segredo. Fail se verify não passa algorithms: ['RS256'] explicitamente.",
+              "CHECK kid injection: grep -rn -iE '(kid|header\\.kid|token\\.header)' ${repo_path} | verificar se valor de kid é usado em path/SQL/comando sem sanitização. Fail se kid alimenta file read, SQL query ou lookup dinâmico sem whitelist.",
+              "CHECK JWT em URL/query: grep -rn -iE '(token=|jwt=|access_token=).*req\\.query|request\\.args' ${repo_path}. Fail se JWT trafega via query param (vaza em logs e referer).",
+              "CHECK jti/replay: verificar se há mecanismo de revogação (blocklist, jti tracking). Partial se JWT não tem jti e sistema precisa de revogação imediata (logout server-side)."
+            ],
+            "exclude_patterns": [
+              "**/*test*/**",
+              "**/*spec*/**"
+            ],
+            "pass_criteria": "jwt.verify especifica algorithms explicitamente e não inclui 'none'. Segredo HS lido de env var com >= 32 bytes. Se usa RS256, algorithms forçado em verify. kid não alimenta sinks perigosos. JWT transportado em Authorization header, não em URL.",
+            "fail_criteria": "Qualquer uma: alg=none aceito, HS secret hardcoded curto, algorithms não especificado em verify com chave pública acessível, kid injection possível, JWT em query param.",
+            "false_positive_guidance": "Libs modernas (jose >= 4, jsonwebtoken >= 9) podem rejeitar 'none' por padrão — confirmar versão antes de marcar fail. Testes unitários com segredos curtos ('secret', '123') não são fail se o código de produção lê de env var.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
+          },
+          "remediation": "Sempre passar algorithms explícito em verify (ex: jwt.verify(token, key, { algorithms: ['RS256'] })). Usar asymmetric (RS256/ES256) para sistemas distribuídos. HS secrets com >= 32 bytes random de secrets manager. Validar kid contra whitelist. Nunca aceitar JWT em query param. Implementar jti + blocklist para revogação."
         }
       ]
     },
-
     "authorization": {
       "task_ref": "SEC-013",
       "domain": "authorization",
       "title": "Autorização",
       "priority": "critical",
       "input_requirements": {
-        "required": ["repo_path"],
-        "optional": ["endpoint_base_url"]
+        "required": [
+          "repo_path"
+        ],
+        "optional": [
+          "endpoint_base_url",
+          "tool_capabilities_path"
+        ]
       },
+      "contextual_note": "Este playbook decide a partir do código local. Middleware global, conventions do framework e policy layers podem proteger rotas sem aparecer no mesmo arquivo da rota; por isso, matches heurísticos devem default para confidence=medium, e ausência de evidência local inequívoca não basta para confidence=high. Quando reports/phase1/tool-capabilities.json estiver disponível, usá-lo para decidir quais confirmações por ferramenta são realmente executáveis no ambiente local; ausência do artefato reduz apenas a profundidade de confirmação, nunca a completude estática.",
       "checks": [
         {
           "check_id": "AZ-001",
@@ -516,8 +824,10 @@
               "Identificar rotas sem proteção: rotas que não referenciam auth middleware, decorators de permissão, ou guards.",
               "Verificar se há middleware global vs per-route e se rotas públicas são intencionalmente públicas."
             ],
-            "pass_criteria": "Todas as rotas que acessam dados sensíveis têm controle de acesso. Rotas públicas são intencionais e documentadas.",
-            "fail_criteria": "Rotas que manipulam dados sensíveis sem qualquer middleware de auth/authz. Rotas admin acessíveis sem autenticação."
+            "pass_criteria": "O código mostra controle de acesso consistente nas rotas que acessam dados sensíveis. Rotas públicas são intencionais e documentadas.",
+            "fail_criteria": "Há evidência direta no código de rotas que manipulam dados sensíveis sem qualquer middleware/guard/policy de auth/authz. Rotas admin aparecem acessíveis sem autenticação.",
+            "false_positive_guidance": "Frameworks com middleware global, base controller protegido ou policy layer centralizada podem não expor a checagem no arquivo da rota. Antes de marcar fail, procurar proteção herdada, decorators em classes-base ou configuração global do router.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Aplicar middleware de auth por padrão (deny-by-default). Whitelist rotas públicas explicitamente. Documentar política de acesso por rota."
         },
@@ -533,8 +843,10 @@
               "Buscar por queries sem filtro de owner: 'findById(id)' sem 'where user_id = current_user'.",
               "Verificar se UUIDs são usados ao invés de IDs sequenciais (mitiga enumeração, não resolve IDOR)."
             ],
-            "pass_criteria": "Todos os endpoints que recebem IDs verificam ownership ou permissão do usuário autenticado sobre o recurso.",
-            "fail_criteria": "Qualquer endpoint que retorna/modifica recurso baseado apenas no ID fornecido sem verificar ownership."
+            "pass_criteria": "Os endpoints observáveis no código que recebem IDs verificam ownership ou permissão do usuário autenticado sobre o recurso.",
+            "fail_criteria": "Há evidência direta de endpoint que retorna/modifica recurso baseado apenas no ID fornecido sem verificar ownership, escopo organizacional ou policy equivalente.",
+            "false_positive_guidance": "Scoping implícito via ORM/repository (ex: tenant_id injetado automaticamente, default scopes, row-level security) pode mitigar IDOR sem aparecer na query local. Se a proteção existir em camada indireta, usar partial ou confidence=medium em vez de fail conclusivo.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Sempre filtrar queries por user_id/org_id do usuário autenticado. Implementar policy layer (ex: CASL, Pundit, Django Guardian). Usar UUIDs ao invés de IDs sequenciais."
         },
@@ -551,7 +863,21 @@
               "Verificar se API endpoints correspondentes a funcionalidades admin têm guards no backend."
             ],
             "pass_criteria": "Toda verificação de permissão no frontend é replicada no backend. Frontend hide é UX, não security.",
-            "fail_criteria": "Funcionalidades restritas acessíveis via API direta mesmo que escondidas no frontend."
+            "fail_criteria": "Funcionalidades restritas acessíveis via API direta mesmo que escondidas no frontend.",
+            "false_positive_guidance": "Verificar guards, middleware global, decorators, base controllers, policy layers e scoping implícito do ORM antes de concluir ausência de autorização efetiva.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial.",
+            "tooling": {
+              "preferred_tools": [
+                "semgrep"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "sast_pattern_scanners",
+              "evidence_requirements": [
+                "tool_output",
+                "code_snippet"
+              ],
+              "confidence_effect": "A ferramenta só eleva confidence quando o match coincide com rota/handler real sem guard server-side observável. UI-only gating sem prova backend permanece medium."
+            }
           },
           "remediation": "Implementar toda lógica de autorização no backend. Frontend deve esconder UI por UX, não por segurança. Testar endpoints diretamente com curl/Postman."
         },
@@ -568,7 +894,9 @@
               "Verificar se admin panel está em path previsível ou em subdomain/port separado."
             ],
             "pass_criteria": "Rotas admin protegidas por auth + role check. Admin em path não-óbvio ou rede segregada.",
-            "fail_criteria": "Admin routes acessíveis sem autenticação. Admin em /admin sem proteção adicional."
+            "fail_criteria": "Admin routes acessíveis sem autenticação. Admin em /admin sem proteção adicional.",
+            "false_positive_guidance": "Verificar guards, middleware global, decorators, base controllers, policy layers e scoping implícito do ORM antes de concluir ausência de autorização efetiva.",
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
           },
           "remediation": "Proteger admin com auth + role admin. Mover para subdomain ou porta segregada. Implementar IP whitelist se possível. Adicionar MFA para admin."
         },
@@ -585,7 +913,8 @@
               "Verificar se princípio do menor privilégio está aplicado."
             ],
             "pass_criteria": "Permissões granulares definidas. Roles mapeados a permissões específicas. Menor privilégio aplicado.",
-            "fail_criteria": "Apenas 2 roles (admin/user). Admin tem acesso a tudo sem granularidade. Sem definição formal de permissões."
+            "fail_criteria": "Apenas 2 roles (admin/user). Admin tem acesso a tudo sem granularidade. Sem definição formal de permissões.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar RBAC ou ABAC granular. Definir permissões por recurso e ação. Auditar roles periodicamente. Documentar matriz de permissões."
         },
@@ -601,22 +930,28 @@
               "Verificar se ações em massa (bulk delete, bulk update) têm proteção adicional."
             ],
             "pass_criteria": "Ações destrutivas requerem confirmação. Ações irreversíveis requerem re-autenticação. Bulk operations protegidas.",
-            "fail_criteria": "DELETE de recursos sem confirmação. Ações irreversíveis em single request sem proteção."
+            "fail_criteria": "DELETE de recursos sem confirmação. Ações irreversíveis em single request sem proteção.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Exigir confirmação para ações destrutivas. Re-autenticação para ações críticas (delete account, change email). Soft-delete com período de recuperação."
         }
       ]
     },
-
     "api_security": {
       "task_ref": "SEC-014",
       "domain": "api_security",
       "title": "Segurança de API",
       "priority": "high",
       "input_requirements": {
-        "required": ["repo_path"],
-        "optional": ["endpoint_base_url"]
+        "required": [
+          "repo_path"
+        ],
+        "optional": [
+          "endpoint_base_url",
+          "tool_capabilities_path"
+        ]
       },
+      "contextual_note": "Este playbook é static-first. Controles de gateway, CDN ou API management que não estejam versionados no repositório só podem ser inferidos com confidence reduzido. A sonda runtime, quando endpoint_base_url existe, serve para confirmar comportamento; sua ausência não é falha. Quando reports/phase1/tool-capabilities.json estiver disponível, usá-lo para decidir quais confirmações por ferramenta são realmente executáveis no ambiente local; ausência do artefato reduz apenas a profundidade de confirmação, nunca a completude estática.",
       "checks": [
         {
           "check_id": "AP-001",
@@ -630,8 +965,10 @@
               "Verificar se rate limit está configurado no API gateway/reverse proxy (nginx, kong, traefik).",
               "Se endpoint_base_url: enviar 20 requests em sequência e verificar se há 429 Too Many Requests."
             ],
-            "pass_criteria": "Rate limit configurado em endpoints públicos. Endpoints sensíveis (login, register, reset) com limits mais restritivos.",
-            "fail_criteria": "Nenhum rate limit encontrado. Endpoints de auth sem proteção contra abuso."
+            "pass_criteria": "Há evidência no código ou na config versionada de rate limit em endpoints públicos. Endpoints sensíveis (login, register, reset) têm limits mais restritivos ou a sonda runtime confirma 429.",
+            "fail_criteria": "Nenhum rate limit é observável no código/config versionada e endpoints de auth aparecem sem proteção contra abuso. Se o controle puder existir apenas em gateway externo não versionado, usar partial com confidence=low.",
+            "false_positive_guidance": "Rate limiting pode estar implementado em API gateway, CDN ou ingress externo ao repo. Sem evidência local nem endpoint para confirmar, evitar fail conclusivo e preferir partial com confidence=low.",
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
           },
           "remediation": "Implementar rate limiting por IP e por user. Endpoints de auth: 5-10 req/min. APIs gerais: 100-1000 req/min conforme caso de uso. Retornar 429 com Retry-After header."
         },
@@ -647,8 +984,10 @@
               "Verificar se campos sensíveis (password_hash, internal_id, tokens, email, CPF) são excluídos das respostas.",
               "Verificar se há diferença de serialização por role (admin vê mais campos que user)."
             ],
-            "pass_criteria": "Respostas filtradas com DTOs/serializers. Campos sensíveis excluídos. Sem over-fetching.",
-            "fail_criteria": "Endpoints retornando objetos completos incluindo campos sensíveis. SELECT * sem filtragem na response."
+            "pass_criteria": "Respostas observáveis no código são filtradas com DTOs/serializers ou seleção explícita de campos. Campos sensíveis excluídos. Sem over-fetching relevante.",
+            "fail_criteria": "Há evidência direta de endpoint retornando objeto completo com campos sensíveis ou usando SELECT * sem filtragem antes da response.",
+            "false_positive_guidance": "SELECT * no acesso a dados não é fail por si só se a serialização posterior remove campos sensíveis. Models com hidden/private fields, serializers globais ou interceptors podem mitigar a exposição.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar DTOs/serializers para cada endpoint. Excluir campos sensíveis por padrão. Usar sparse fieldsets se API suporta (JSON:API, GraphQL)."
         },
@@ -665,7 +1004,8 @@
               "Se endpoint_base_url: testar com email existente vs inexistente e comparar responses (status code, body, timing)."
             ],
             "pass_criteria": "Mensagens genéricas em login/register/reset que não revelam existência de conta. Timing constante.",
-            "fail_criteria": "Respostas diferentes que permitem determinar se email/username existe no sistema."
+            "fail_criteria": "Respostas diferentes que permitem determinar se email/username existe no sistema.",
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
           },
           "remediation": "Retornar mesma mensagem independente de existência: 'Se a conta existir, enviaremos um email'. Usar timing constante. Considerar CAPTCHA após N tentativas."
         },
@@ -682,7 +1022,22 @@
               "Verificar se há validação de tipos, ranges, formatos (email, CPF, UUID)."
             ],
             "pass_criteria": "Todos os endpoints que recebem input têm validação de schema. Tipos, ranges e formatos validados.",
-            "fail_criteria": "Endpoints processando req.body/request.data sem validação. Ausência de library de validação."
+            "fail_criteria": "Endpoints processando req.body/request.data sem validação. Ausência de library de validação.",
+            "false_positive_guidance": "Verificar serializers, validators globais, gateways e wrappers compartilhados antes de concluir fail. Ausência local de controle externo deve virar partial/low, não fail categórico.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial.",
+            "tooling": {
+              "preferred_tools": [
+                "semgrep"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "sast_pattern_scanners",
+              "evidence_requirements": [
+                "tool_output",
+                "code_snippet",
+                "config_artifact"
+              ],
+              "confidence_effect": "Subir confidence apenas quando o scanner e o código convergem para ausência de schema validation no caminho de entrada relevante."
+            }
           },
           "remediation": "Implementar validação com zod/joi/pydantic em todos os endpoints. Validar tipos, ranges, formatos. Rejeitar campos desconhecidos (strict mode)."
         },
@@ -698,7 +1053,8 @@
               "Verificar se há mais de uma versão e se versões antigas são deprecadas."
             ],
             "pass_criteria": "API versionada com estratégia definida. Versões antigas com plano de deprecation.",
-            "fail_criteria": "Nenhum versionamento de API. Breaking changes sem proteção de clientes existentes."
+            "fail_criteria": "Nenhum versionamento de API. Breaking changes sem proteção de clientes existentes.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar versionamento por URL path (/api/v1/) ou header (Accept-Version). Documentar política de deprecation."
         },
@@ -715,7 +1071,8 @@
               "Se endpoint_base_url: testar endpoint de listagem sem parâmetros de paginação."
             ],
             "pass_criteria": "Endpoints de listagem paginados. Max limit definido (ex: max 100 por página). Default limit aplicado.",
-            "fail_criteria": "Endpoints retornando todos os registros sem paginação. Sem max limit configurado."
+            "fail_criteria": "Endpoints retornando todos os registros sem paginação. Sem max limit configurado.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar paginação em todos os endpoints de listagem. Default: 20-50 items. Max: 100. Retornar metadata de paginação (total, next, prev)."
         },
@@ -731,22 +1088,81 @@
               "Verificar se tokens de ação única são usados para operações sensíveis."
             ],
             "pass_criteria": "Operações sensíveis protegidas com idempotency keys ou nonces. Timestamps validados onde aplicável.",
-            "fail_criteria": "Operações financeiras ou destrutivas re-executáveis ao reenviar mesma request."
+            "fail_criteria": "Operações financeiras ou destrutivas re-executáveis ao reenviar mesma request.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar idempotency keys para operações sensíveis. Validar timestamp de requests (janela de 5min). Nonces para operações financeiras."
+        },
+        {
+          "check_id": "AP-008",
+          "name": "Mass assignment / BOPLA write-side",
+          "severity_if_fail": "HIGH",
+          "owasp_refs": [
+            "API3:2023",
+            "CWE-915"
+          ],
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Identificar handlers que criam ou atualizam entidades: grep -rn --include='*.{js,ts,py,go,java,php,rb}' -iE '(\\.create\\(|\\.save\\(|\\.update\\(|new User\\(|Model\\.create|repository\\.save)' ${repo_path}",
+              "Para cada handler: verificar se req.body é passado diretamente ou via spread/Object.assign: grep -rn -E '(\\.create\\(req\\.body|\\.create\\(\\.\\.\\.req|Object\\.assign\\(.*req\\.body|\\.update\\(req\\.body)' ${repo_path}",
+              "Python: buscar por **request.data, **kwargs em Model() ou serializer.save().",
+              "PHP: buscar por ->fill($request->all()) sem $fillable definido.",
+              "Ruby: buscar por User.new(params) sem strong_parameters.",
+              "Verificar se há whitelist de campos (DTO explícito, pick(), select(), strong_params): grep -rn -iE '(pick|select|fillable|strong.*param|DTO|allowlist)' ${repo_path}",
+              "Mapear campos sensíveis em schemas: is_admin, role, permissions, verified, balance, password_hash — verificar se esses campos são atingíveis via req.body."
+            ],
+            "pass_criteria": "Todo create/update tem whitelist explícita de campos aceitáveis. Campos privilegiados (role, is_admin, verified, balance) nunca vêm de req.body diretamente.",
+            "fail_criteria": "Model.create(req.body) ou equivalente sem filtro. Object.assign(user, req.body) com campos sensíveis no schema. Ausência de DTO/strong_params.",
+            "false_positive_guidance": "Endpoints administrativos podem legitimamente aceitar role em req.body — verificar se há authz check (AZ-004) na rota antes de marcar como fail.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
+          },
+          "remediation": "Implementar DTOs/serializers com whitelist explícita por endpoint. Em Node: usar pick(req.body, ['name', 'email']). Em Python: serializers do DRF com fields explícitos. PHP: definir $fillable. Ruby: strong_parameters.require(:user).permit(:name, :email). Nunca confiar em spread."
+        },
+        {
+          "check_id": "AP-009",
+          "name": "Consumo inseguro de APIs externas",
+          "severity_if_fail": "HIGH",
+          "owasp_refs": [
+            "API10:2023",
+            "CWE-295",
+            "CWE-20"
+          ],
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Identificar todos os clients HTTP que chamam APIs externas: grep -rn --include='*.{js,ts,py,go,java,php,rb}' -iE '(fetch\\(|axios\\.|got\\(|requests\\.|urllib|HttpClient|RestTemplate|Faraday|Guzzle|curl_exec)' ${repo_path}",
+              "CHECK timeout: verificar se cada call tem timeout configurado. Default de libraries geralmente é infinito. Fail se timeout não explicitado.",
+              "CHECK TLS verification: grep -rn -iE '(rejectUnauthorized\\s*:\\s*false|verify\\s*=\\s*False|InsecureSkipVerify\\s*:\\s*true|CURLOPT_SSL_VERIFYPEER.*0)' ${repo_path}. Qualquer match = CRITICAL.",
+              "CHECK response validation: verificar se há schema validation na response de upstream. Buscar por uso direto de response.data sem parse/validate.",
+              "CHECK retry e circuit breaker: grep -rn -iE '(retry|circuit.*break|polly|resilience|opossum|tenacity|backoff)' ${repo_path}. Ausência em calls críticas = MEDIUM.",
+              "CHECK error handling: verificar se errors de upstream são propagados brutos ao client (leak de implementação) ou sanitizados.",
+              "CHECK credenciais: verificar se API keys de upstream são lidas de env (cross-ref SC-001)."
+            ],
+            "pass_criteria": "Todo HTTP client tem timeout explícito. TLS verification nunca desabilitado. Responses validadas antes de uso. Errors sanitizados antes de propagar ao client.",
+            "fail_criteria": "rejectUnauthorized: false / verify=False / InsecureSkipVerify: true em qualquer call. Call sem timeout em path crítico. Response usada sem validação.",
+            "false_positive_guidance": "Testes podem desabilitar TLS verify — verificar se é em path de teste (cross-ref com exclude_patterns). Timeout explícito em wrapper/service genérico conta para todas as calls que usam o wrapper.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
+          },
+          "remediation": "Sempre configurar timeout (30s default, menor em paths críticos). Nunca desabilitar TLS verification em produção. Validar response com zod/pydantic/joi antes de usar. Implementar circuit breaker (opossum, resilience4j, polly) para dependências críticas. Sanitizar errors de upstream antes de propagar. Usar secrets manager para API keys."
         }
       ]
     },
-
     "input_validation": {
       "task_ref": "SEC-015",
       "domain": "input_validation",
       "title": "Validação de Entrada",
       "priority": "critical",
       "input_requirements": {
-        "required": ["repo_path"],
-        "optional": ["endpoint_base_url"]
+        "required": [
+          "repo_path"
+        ],
+        "optional": [
+          "endpoint_base_url",
+          "tool_capabilities_path"
+        ]
       },
+      "contextual_note": "Detecção de sinks perigosos por grep gera ruído. Para marcar fail com confidence=high, o check precisa correlacionar entrada controlável com sink inseguro no código local; wrappers seguros, parametrização centralizada e validação em camada anterior devem ser considerados antes da conclusão. Quando reports/phase1/tool-capabilities.json estiver disponível, usá-lo para decidir quais confirmações por ferramenta são realmente executáveis no ambiente local; ausência do artefato reduz apenas a profundidade de confirmação, nunca a completude estática.",
       "checks": [
         {
           "check_id": "IV-001",
@@ -762,8 +1178,22 @@
               "Verificar se raw queries usam parametrização: $1, ?, :param, %s com bind.",
               "Verificar stored procedures e se parâmetros são sanitizados."
             ],
-            "pass_criteria": "ORM usado consistentemente. Raw queries usam parametrização. Zero concatenação de input em SQL.",
-            "fail_criteria": "Qualquer concatenação de user input em string SQL. Raw queries sem parametrização."
+            "pass_criteria": "ORM usado consistentemente. Raw queries observáveis no código usam parametrização. Não há fluxo evidente de input para concatenação SQL.",
+            "fail_criteria": "Há evidência direta de concatenação de input controlável em string SQL ou raw query sem parametrização adequada.",
+            "false_positive_guidance": "String building para queries constantes, migrations, seeds ou templates SQL com bind feito em camada posterior não é fail automático. Confirmar que o valor concatenado vem de input controlável antes de concluir SQL injection.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial.",
+            "tooling": {
+              "preferred_tools": [
+                "semgrep"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "sast_pattern_scanners",
+              "evidence_requirements": [
+                "tool_output",
+                "code_snippet"
+              ],
+              "confidence_effect": "Combinação de match do scanner com sink SQL diretamente controlável pode elevar confidence para high."
+            }
           },
           "remediation": "Usar ORM ou prepared statements. Nunca concatenar input em SQL. Raw queries com parameterized placeholders. Implementar WAF como defesa em profundidade."
         },
@@ -779,8 +1209,22 @@
               "Verificar se há sanitização/escaping de input antes de uso em comandos.",
               "Verificar se há alternativas sem shell (ex: execFile ao invés de exec em Node.js)."
             ],
-            "pass_criteria": "Nenhum user input passado a system commands. Se necessário, usa lista de comandos permitidos + escaping. Prefer execFile over exec.",
-            "fail_criteria": "User input concatenado em system commands. Uso de shell=True com input não sanitizado."
+            "pass_criteria": "Nenhum input controlável pelo usuário é passado a system commands. Quando necessário, há allowlist de comandos/argumentos e chamada sem shell.",
+            "fail_criteria": "Há evidência direta de input controlável concatenado em system commands ou uso de shell=True/exec equivalente sem sanitização suficiente.",
+            "false_positive_guidance": "Comandos com argumentos constantes, wrappers que usam array de argumentos ou sanitização/allowlist centralizada podem ser seguros. Não marcar fail só pela presença de exec/spawn sem rastrear se há input externo alcançando o sink.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial.",
+            "tooling": {
+              "preferred_tools": [
+                "semgrep"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "sast_pattern_scanners",
+              "evidence_requirements": [
+                "tool_output",
+                "code_snippet"
+              ],
+              "confidence_effect": "Elevar confidence apenas quando input controlável alcança execução de comando/template sem sanitização ou allowlist observável."
+            }
           },
           "remediation": "Evitar system commands com user input. Se necessário: whitelist de comandos + execFile (sem shell). Escapar com shlex.quote() em Python. Nunca shell=True com input externo."
         },
@@ -797,7 +1241,9 @@
               "Buscar por uso de safe/raw/autoescape off com dados do usuário."
             ],
             "pass_criteria": "Autoescaping habilitado. User input nunca usado como template source. Uso de |safe apenas com dados confiáveis.",
-            "fail_criteria": "User input usado como template string. Autoescaping desabilitado. render_template_string com input externo."
+            "fail_criteria": "User input usado como template string. Autoescaping desabilitado. render_template_string com input externo.",
+            "false_positive_guidance": "Rastrear se o input é realmente controlável e alcança o sink sem sanitização centralizada. Builders seguros, wrappers e validação global podem reduzir ou eliminar o risco.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Nunca usar input como template source. Habilitar autoescaping. Usar |safe apenas com dados do sistema, nunca de usuário. Sandboxed templates quando possível."
         },
@@ -814,7 +1260,21 @@
               "Verificar se há resolução de DNS seguida por validação de IP (DNS rebinding protection)."
             ],
             "pass_criteria": "URLs de user input validadas com whitelist. IPs internos bloqueados. DNS rebinding mitigado.",
-            "fail_criteria": "Requests feitos com URL fornecida pelo usuário sem validação. Acesso a rede interna possível via SSRF."
+            "fail_criteria": "Requests feitos com URL fornecida pelo usuário sem validação. Acesso a rede interna possível via SSRF.",
+            "false_positive_guidance": "Rastrear se o input é realmente controlável e alcança o sink sem sanitização centralizada. Builders seguros, wrappers e validação global podem reduzir ou eliminar o risco.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial.",
+            "tooling": {
+              "preferred_tools": [
+                "semgrep"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "sast_pattern_scanners",
+              "evidence_requirements": [
+                "tool_output",
+                "code_snippet"
+              ],
+              "confidence_effect": "A confiança sobe quando há evidência direta de URL controlável fluindo para client HTTP sem allowlist. Ausência de runtime mantém conclusão em medium/low."
+            }
           },
           "remediation": "Validar e normalizar URLs. Bloquear IPs privados e link-local. Usar whitelist de domínios quando possível. Resolver DNS e validar IP resultante. Timeout curto em requests."
         },
@@ -832,7 +1292,22 @@
               "Se endpoint_base_url: testar input <script>alert(1)</script> em campos de texto."
             ],
             "pass_criteria": "Framework com auto-escaping. Bypasses (dangerouslySetInnerHTML etc.) usados apenas com dados sanitizados. CSP header configurado.",
-            "fail_criteria": "User input inserido via innerHTML/v-html sem sanitização. eval() com input externo. Sem CSP header."
+            "fail_criteria": "User input inserido via innerHTML/v-html sem sanitização. eval() com input externo. Sem CSP header.",
+            "false_positive_guidance": "Rastrear se o input é realmente controlável e alcança o sink sem sanitização centralizada. Builders seguros, wrappers e validação global podem reduzir ou eliminar o risco.",
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente.",
+            "tooling": {
+              "preferred_tools": [
+                "semgrep"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "sast_pattern_scanners",
+              "evidence_requirements": [
+                "tool_output",
+                "code_snippet",
+                "runtime_probe"
+              ],
+              "confidence_effect": "Scanner local ajuda a localizar sinks; high exige prova estática inequívoca ou confirmação runtime opt-in de reflexão/executabilidade."
+            }
           },
           "remediation": "Usar auto-escaping do framework. Sanitizar com DOMPurify antes de innerHTML. Nunca eval() com user input. Implementar CSP restritivo. Encode output por contexto."
         },
@@ -849,7 +1324,8 @@
               "Verificar se há validação de content-type nas requests."
             ],
             "pass_criteria": "Todos os inputs validados com tipo, formato e limites definidos antes de processamento.",
-            "fail_criteria": "Inputs processados sem validação. Campos sem limites de tamanho. Tipos não verificados."
+            "fail_criteria": "Inputs processados sem validação. Campos sem limites de tamanho. Tipos não verificados.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Validar todos os inputs no ponto de entrada. Definir schemas com tipos, limites e formatos. Rejeitar input malformado com 400."
         },
@@ -866,21 +1342,108 @@
               "Verificar se dados são sanitizados na entrada (write) E na saída (read/render)."
             ],
             "pass_criteria": "Sanitização aplicada por contexto. Input sanitizado antes de armazenamento. Output encoded antes de renderização.",
-            "fail_criteria": "Nenhuma sanitização encontrada. Dados de usuário armazenados e exibidos raw."
+            "fail_criteria": "Nenhuma sanitização encontrada. Dados de usuário armazenados e exibidos raw.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar sanitização por contexto: HTML encode para render, parameterize para SQL, shellescape para commands. Sanitizar na entrada E na saída."
+        },
+        {
+          "check_id": "IV-008",
+          "name": "Deserialização insegura",
+          "severity_if_fail": "CRITICAL",
+          "owasp_refs": [
+            "A08:2021",
+            "CWE-502"
+          ],
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Python pickle: grep -rn --include='*.py' -E '(pickle\\.loads?|cPickle\\.loads?|_pickle\\.loads?|marshal\\.loads?)' ${repo_path}",
+              "Python yaml: grep -rn --include='*.py' -E 'yaml\\.load\\(' ${repo_path} | grep -v 'Loader\\s*=\\s*(yaml\\.)?SafeLoader' — yaml.load sem SafeLoader é fail.",
+              "PHP unserialize: grep -rn --include='*.php' -E 'unserialize\\(' ${repo_path}",
+              "Java ObjectInputStream: grep -rn --include='*.java' -E '(ObjectInputStream|readObject\\(|XMLDecoder|XStream.*fromXML)' ${repo_path}",
+              "Ruby Marshal: grep -rn --include='*.rb' -E '(Marshal\\.load|YAML\\.load[^_])' ${repo_path}",
+              "Node.js: grep -rn --include='*.{js,ts}' -E '(node-serialize|serialize-javascript.*unserialize|funcster)' ${repo_path}",
+              ".NET: grep -rn --include='*.cs' -E '(BinaryFormatter|SoapFormatter|LosFormatter|NetDataContractSerializer|JavaScriptSerializer)' ${repo_path}",
+              "Para cada sink encontrado: verificar se input alimentando a deserialização vem de fonte externa (req.body, file upload, queue message, cookie).",
+              "Verificar se há allowlist de classes permitidas (ObjectInputFilter em Java, restricted unpickler em Python)."
+            ],
+            "pass_criteria": "Nenhum sink de deserialização insegura recebe input externo. yaml.load usa SafeLoader. Java tem ObjectInputFilter configurado. Preferência por JSON/protobuf/msgpack sobre pickle/marshal/unserialize.",
+            "fail_criteria": "Qualquer sink recebendo dados de usuário/rede/storage compartilhado sem allowlist de classes. yaml.load sem SafeLoader. unserialize() com input de usuário.",
+            "false_positive_guidance": "Deserialização de dados próprios trusted (ex: cache interno, queue com HMAC verificado) pode ser aceitável — documentar justificativa e marcar como partial.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
+          },
+          "remediation": "Substituir por formatos seguros: JSON, Protocol Buffers, MessagePack. Se pickle/Marshal/unserialize necessário, verificar HMAC antes de desserializar OU usar allowlist restrita de classes. Python: yaml.safe_load ao invés de yaml.load. Java: ObjectInputFilter com allowlist. PHP: evitar unserialize, preferir json_decode."
+        },
+        {
+          "check_id": "IV-009",
+          "name": "XML External Entity (XXE)",
+          "severity_if_fail": "HIGH",
+          "owasp_refs": [
+            "A05:2021",
+            "CWE-611",
+            "CWE-776"
+          ],
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Identificar parsers XML em uso: grep -rn --include='*.{js,ts,py,go,java,php,rb,cs}' -iE '(DocumentBuilder|SAXParser|XMLReader|XMLInputFactory|xml\\.etree|lxml\\.etree|libxml|xml2js|SimpleXML|DOMDocument|Nokogiri|XmlDocument)' ${repo_path}",
+              "Python lxml: verificar se parser é criado com resolve_entities=False: grep -rn -E 'lxml.*etree\\.(parse|fromstring|XMLParser)' ${repo_path}. Sem resolve_entities=False = fail.",
+              "Python xml.etree: defusedxml é recomendado. grep -rn 'defusedxml' ${repo_path} — ausência com uso de xml.etree = fail.",
+              "Java: verificar se DocumentBuilderFactory desabilita DTDs: grep -rn -E 'setFeature\\(\"http://apache\\.org/xml/features/disallow-doctype-decl\"' ${repo_path}. Ausência = fail.",
+              "Java: verificar XMLConstants.FEATURE_SECURE_PROCESSING e setExpandEntityReferences(false).",
+              "PHP libxml: grep -rn -E 'libxml_disable_entity_loader|LIBXML_NOENT|LIBXML_DTDLOAD' ${repo_path}. PHP < 8 requer libxml_disable_entity_loader(true).",
+              ".NET: grep -rn -iE 'XmlReaderSettings|DtdProcessing' ${repo_path}. DtdProcessing != Prohibit = fail.",
+              "Ruby Nokogiri: grep -rn -E 'Nokogiri::XML' ${repo_path}. Opções padrão permitem DTD — deve ter NONOENT ou NOENT desabilitado explicitamente.",
+              "Verificar se input XML vem de fonte externa (upload, API, SOAP endpoint)."
+            ],
+            "pass_criteria": "Todos os parsers XML desabilitam DTDs/entidades externas explicitamente. Uso de libraries seguras por padrão (defusedxml). Input XML validado contra schema.",
+            "fail_criteria": "Parser XML com configuração default que permite DTDs processando input externo. Ausência de defusedxml em Python com xml.etree. DocumentBuilderFactory sem disallow-doctype-decl.",
+            "false_positive_guidance": "Se XML é gerado internamente e nunca parseado de fonte externa, não há risco de XXE — marcar not_applicable.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
+          },
+          "remediation": "Python: usar defusedxml.ElementTree ao invés de xml.etree. Java: dbf.setFeature('http://apache.org/xml/features/disallow-doctype-decl', true). PHP 8+: LIBXML_NONET. .NET: XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit }. Evitar XML quando JSON é viável."
+        },
+        {
+          "check_id": "IV-010",
+          "name": "Open Redirect",
+          "severity_if_fail": "MEDIUM",
+          "owasp_refs": [
+            "A01:2021",
+            "CWE-601"
+          ],
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Identificar endpoints de redirect: grep -rn --include='*.{js,ts,py,go,java,php,rb}' -iE '(res\\.redirect|response\\.redirect|HttpResponseRedirect|sendRedirect|header\\(.Location|redirect_to)' ${repo_path}",
+              "Para cada redirect: verificar se o destino vem de input do usuário (req.query.url, req.body.returnTo, request.GET['next'], etc.).",
+              "Buscar por patterns comuns: next, returnTo, redirect, url, continue, return, callback: grep -rn -iE '(next=|returnTo=|redirect=|continueTo=|callback=)' ${repo_path}",
+              "Verificar se há whitelist de URLs/paths permitidos: grep -rn -iE '(allowed.*redirect|whitelist.*url|safe.*url|is_safe_url|allowlist)' ${repo_path}",
+              "Verificar se redirect usa path relativo apenas (startswith('/') e não startswith('//')) ou valida host.",
+              "Se endpoint_base_url disponível: testar GET ${endpoint_base_url}/login?next=https://evil.com e verificar se Location header aponta para evil.com."
+            ],
+            "pass_criteria": "Redirects com destino do usuário validam contra whitelist ou aceitam apenas paths relativos (sem //). Django usa is_safe_url, Flask/Express usa validação explícita.",
+            "fail_criteria": "res.redirect(req.query.url) ou equivalente sem validação. Startswith('/') sozinho não é suficiente (// é bypass).",
+            "false_positive_guidance": "Redirects com destino hardcoded são seguros (res.redirect('/dashboard')).",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
+          },
+          "remediation": "Validar destino contra whitelist de hosts permitidos OU aceitar apenas paths relativos com validação estrita (deve começar com / mas não com //). Django: django.utils.http.url_has_allowed_host_and_scheme. Em Node: parse URL e validar .host. Rejeitar com 400 se inválido."
         }
       ]
     },
-
     "file_upload": {
       "task_ref": "SEC-016",
       "domain": "file_upload",
       "title": "Upload de Arquivos",
       "priority": "high",
       "input_requirements": {
-        "required": ["repo_path"],
-        "optional": ["endpoint_base_url"]
+        "required": [
+          "repo_path"
+        ],
+        "optional": [
+          "endpoint_base_url",
+          "tool_capabilities_path"
+        ]
       },
       "checks": [
         {
@@ -896,7 +1459,9 @@
               "Verificar se extensão e MIME são validados juntos (não apenas um)."
             ],
             "pass_criteria": "Whitelist de tipos permitidos. Validação por magic bytes + extensão. MIME type verificado server-side.",
-            "fail_criteria": "Nenhuma validação de tipo. Validação apenas por extensão (bypassável). Blacklist ao invés de whitelist."
+            "fail_criteria": "Nenhuma validação de tipo. Validação apenas por extensão (bypassável). Blacklist ao invés de whitelist.",
+            "false_positive_guidance": "Verificar se a proteção não está centralizada no middleware de upload, object storage ou pipeline assíncrono antes de concluir ausência do controle.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Whitelist de extensões e MIME types permitidos. Validar magic bytes com library (file-type, python-magic). Rejeitar tudo que não está na whitelist."
         },
@@ -912,7 +1477,8 @@
               "Verificar se limite é aplicado no backend e não apenas no frontend (HTML maxlength não é segurança)."
             ],
             "pass_criteria": "Limite de tamanho configurado no backend e/ou web server. Limite adequado ao caso de uso.",
-            "fail_criteria": "Nenhum limite de tamanho. Limite apenas no frontend. Limite excessivamente alto."
+            "fail_criteria": "Nenhum limite de tamanho. Limite apenas no frontend. Limite excessivamente alto.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Configurar limite no web server (nginx: client_max_body_size 10M) e na aplicação. Limitar por tipo de arquivo. Rejeitar com 413 Payload Too Large."
         },
@@ -928,7 +1494,8 @@
               "Verificar se há uso de object storage: grep -rn -iE '(S3|azure.*blob|gcs.*bucket|minio|cloudinary)' ${repo_path}"
             ],
             "pass_criteria": "Uploads armazenados em object storage externo (S3, Azure Blob, GCS). Servidos via CDN ou signed URLs.",
-            "fail_criteria": "Uploads no filesystem do app server. Servidos diretamente pelo app, permitindo path traversal."
+            "fail_criteria": "Uploads no filesystem do app server. Servidos diretamente pelo app, permitindo path traversal.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Mover para object storage (S3, Azure Blob). Servir via CDN ou signed URLs com expiração. Se local necessário, fora do webroot com randomized filenames."
         },
@@ -944,7 +1511,8 @@
               "Verificar se arquivos infectados são rejeitados e deletados."
             ],
             "pass_criteria": "Scan antivírus integrado no pipeline de upload. Arquivos escaneados antes de serem acessíveis. Infectados rejeitados.",
-            "fail_criteria": "Nenhum scan antivírus. Arquivos acessíveis antes de scan completar."
+            "fail_criteria": "Nenhum scan antivírus. Arquivos acessíveis antes de scan completar.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Integrar ClamAV ou serviço equivalente. Escanear antes de persistir. Quarentenar até scan completar. Rejeitar e alertar em caso de detecção."
         },
@@ -961,7 +1529,9 @@
               "Verificar se há Content-Disposition: attachment em downloads de arquivos uploaded."
             ],
             "pass_criteria": "Extensões executáveis bloqueadas. Web server não interpreta uploads. Downloads forçam Content-Disposition: attachment.",
-            "fail_criteria": "Upload de .php/.jsp/.py aceito. Web server interpreta uploads como código. Sem Content-Disposition em downloads."
+            "fail_criteria": "Upload de .php/.jsp/.py aceito. Web server interpreta uploads como código. Sem Content-Disposition em downloads.",
+            "false_positive_guidance": "Verificar se a proteção não está centralizada no middleware de upload, object storage ou pipeline assíncrono antes de concluir ausência do controle.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Whitelist rigorosa de extensões. Servir uploads de domínio separado. Content-Type correto + Content-Disposition: attachment. Randomizar filenames."
         },
@@ -977,21 +1547,28 @@
               "Verificar se filename é substituído por UUID/hash: grep -rn -iE '(uuid|randomUUID|nanoid|crypto.*random.*filename)' ${repo_path}"
             ],
             "pass_criteria": "Filenames substituídos por UUID/hash no armazenamento. Nome original salvo apenas em metadados sanitizados.",
-            "fail_criteria": "Filename original usado diretamente no filesystem. Sem sanitização de path traversal (../)."
+            "fail_criteria": "Filename original usado diretamente no filesystem. Sem sanitização de path traversal (../).",
+            "false_positive_guidance": "Verificar se a proteção não está centralizada no middleware de upload, object storage ou pipeline assíncrono antes de concluir ausência do controle.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Substituir filename por UUID + extensão validada. Armazenar nome original apenas em DB (sanitizado). Nunca usar filename original em path do filesystem."
         }
-      ]
+      ],
+      "contextual_note": "Este playbook é static-first e deve permanecer executável apenas com código/config local. Quando reports/phase1/tool-capabilities.json estiver disponível, usá-lo para decidir quais confirmações por ferramenta são realmente executáveis no ambiente local; ausência do artefato reduz apenas a profundidade de confirmação, nunca a completude estática."
     },
-
     "session_security": {
       "task_ref": "SEC-017",
       "domain": "session_security",
       "title": "Segurança de Sessão",
       "priority": "high",
       "input_requirements": {
-        "required": ["repo_path"],
-        "optional": ["endpoint_base_url"]
+        "required": [
+          "repo_path"
+        ],
+        "optional": [
+          "endpoint_base_url",
+          "tool_capabilities_path"
+        ]
       },
       "checks": [
         {
@@ -1006,7 +1583,9 @@
               "Se endpoint_base_url: curl -sI ${endpoint_base_url}/ | grep -i set-cookie | grep -iv httponly"
             ],
             "pass_criteria": "Todos os cookies sensíveis (session, auth) com httpOnly flag.",
-            "fail_criteria": "Cookies de sessão ou auth sem httpOnly. Acessíveis via JavaScript."
+            "fail_criteria": "Cookies de sessão ou auth sem httpOnly. Acessíveis via JavaScript.",
+            "false_positive_guidance": "Verificar se cookies, CSRF e expiração são configurados em middleware ou provider compartilhado antes de concluir fail por ausência local em um arquivo isolado.",
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
           },
           "remediation": "Configurar httpOnly: true em todos os cookies de sessão e autenticação."
         },
@@ -1021,7 +1600,9 @@
               "Se endpoint_base_url com HTTPS: verificar Set-Cookie headers para flag Secure."
             ],
             "pass_criteria": "Cookies sensíveis com Secure flag. Transmitidos apenas via HTTPS.",
-            "fail_criteria": "Cookies de sessão sem Secure flag. Possível transmissão via HTTP."
+            "fail_criteria": "Cookies de sessão sem Secure flag. Possível transmissão via HTTP.",
+            "false_positive_guidance": "Verificar se cookies, CSRF e expiração são configurados em middleware ou provider compartilhado antes de concluir fail por ausência local em um arquivo isolado.",
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
           },
           "remediation": "Configurar Secure: true em todos os cookies sensíveis. Garantir HTTPS em produção."
         },
@@ -1037,7 +1618,8 @@
               "Se endpoint_base_url: verificar Set-Cookie headers."
             ],
             "pass_criteria": "SameSite=Strict ou Lax em cookies de sessão. Se None, combinado com Secure.",
-            "fail_criteria": "SameSite ausente em cookies de sessão. SameSite=None sem Secure."
+            "fail_criteria": "SameSite ausente em cookies de sessão. SameSite=None sem Secure.",
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
           },
           "remediation": "Configurar SameSite=Strict (ideal) ou Lax (se cross-site necessário). Nunca None sem Secure."
         },
@@ -1054,7 +1636,9 @@
               "Se API stateless com JWT: CSRF token pode não ser necessário (JWT não é enviado automaticamente como cookie)."
             ],
             "pass_criteria": "CSRF tokens em formulários stateful. OU SameSite=Strict em cookies de sessão. OU API stateless com auth header (não cookie).",
-            "fail_criteria": "Formulários com cookies de sessão sem CSRF token e sem SameSite protection."
+            "fail_criteria": "Formulários com cookies de sessão sem CSRF token e sem SameSite protection.",
+            "false_positive_guidance": "Verificar se cookies, CSRF e expiração são configurados em middleware ou provider compartilhado antes de concluir fail por ausência local em um arquivo isolado.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar CSRF tokens (csurf, django csrf, Spring CSRF). Ou migrar para SameSite=Strict. APIs com Bearer token em header são naturalmente protegidas."
         },
@@ -1070,7 +1654,9 @@
               "Verificar se store de sessão limpa sessões expiradas."
             ],
             "pass_criteria": "Sessões com TTL definido. Store limpa sessões expiradas. Idle timeout implementado.",
-            "fail_criteria": "Sessões sem expiração. Store acumula sessões indefinidamente."
+            "fail_criteria": "Sessões sem expiração. Store acumula sessões indefinidamente.",
+            "false_positive_guidance": "Verificar se cookies, CSRF e expiração são configurados em middleware ou provider compartilhado antes de concluir fail por ausência local em um arquivo isolado.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Configurar TTL máximo de sessão. Implementar idle timeout. Configurar cleanup de sessões expiradas no store."
         },
@@ -1086,21 +1672,28 @@
               "Verificar se refresh tokens são rotacionados (novo refresh token emitido a cada uso)."
             ],
             "pass_criteria": "Tokens de ação única invalidados após uso. Refresh tokens rotacionados.",
-            "fail_criteria": "Tokens reutilizáveis. Refresh tokens sem rotação."
+            "fail_criteria": "Tokens reutilizáveis. Refresh tokens sem rotação.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Invalidar tokens de uso único imediatamente após consumo. Implementar refresh token rotation. Detectar reuso de refresh token como sinal de comprometimento."
         }
-      ]
+      ],
+      "contextual_note": "Este playbook é static-first e deve permanecer executável apenas com código/config local. Quando reports/phase1/tool-capabilities.json estiver disponível, usá-lo para decidir quais confirmações por ferramenta são realmente executáveis no ambiente local; ausência do artefato reduz apenas a profundidade de confirmação, nunca a completude estática."
     },
-
     "cryptography": {
       "task_ref": "SEC-018",
       "domain": "cryptography",
       "title": "Criptografia",
       "priority": "high",
       "input_requirements": {
-        "required": ["repo_path"],
-        "optional": ["endpoint_base_url", "infra_config_path"]
+        "required": [
+          "repo_path"
+        ],
+        "optional": [
+          "endpoint_base_url",
+          "infra_config_path",
+          "tool_capabilities_path"
+        ]
       },
       "checks": [
         {
@@ -1115,7 +1708,9 @@
               "Se endpoint_base_url: curl -sI http://domain (sem S) e verificar redirect 301 para HTTPS."
             ],
             "pass_criteria": "HTTP redireciona para HTTPS. HSTS header presente. HTTPS obrigatório em todos os endpoints.",
-            "fail_criteria": "Aplicação acessível via HTTP sem redirect. Sem HSTS. Mixed content."
+            "fail_criteria": "Aplicação acessível via HTTP sem redirect. Sem HSTS. Mixed content.",
+            "false_positive_guidance": "Confirmar se a configuração observada é de produção e não de teste/dev. Controles terminados no edge ou provider externo exigem partial/low quando não há evidência local suficiente.",
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
           },
           "remediation": "Configurar redirect 301 HTTP→HTTPS. Adicionar HSTS header (max-age=31536000; includeSubDomains; preload). Considerar HSTS preload list."
         },
@@ -1132,7 +1727,9 @@
               "Verificar se há random inseguro: grep -rn -iE '(Math\\.random|random\\.random|rand\\(\\))' usado para tokens/secrets."
             ],
             "pass_criteria": "Algoritmos modernos: AES-256-GCM, RSA-2048+, SHA-256+, TLS 1.2+. Random criptográfico para tokens.",
-            "fail_criteria": "MD5/SHA1 para segurança. DES/RC4/ECB em uso. TLS < 1.2. Math.random para tokens."
+            "fail_criteria": "MD5/SHA1 para segurança. DES/RC4/ECB em uso. TLS < 1.2. Math.random para tokens.",
+            "false_positive_guidance": "Confirmar se a configuração observada é de produção e não de teste/dev. Controles terminados no edge ou provider externo exigem partial/low quando não há evidência local suficiente.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Migrar para AES-256-GCM, SHA-256+. TLS 1.2 mínimo (preferencialmente 1.3). crypto.randomBytes/secrets.token para valores aleatórios seguros."
         },
@@ -1149,7 +1746,9 @@
               "Verificar se backups são criptografados."
             ],
             "pass_criteria": "Dados PII/sensíveis criptografados at-rest. DB com encryption habilitado. Backups criptografados.",
-            "fail_criteria": "CPF/dados de saúde/cartão armazenados em texto plano. DB sem encryption. Backups não criptografados."
+            "fail_criteria": "CPF/dados de saúde/cartão armazenados em texto plano. DB sem encryption. Backups não criptografados.",
+            "false_positive_guidance": "Confirmar se a configuração observada é de produção e não de teste/dev. Controles terminados no edge ou provider externo exigem partial/low quando não há evidência local suficiente.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Criptografar campos sensíveis a nível de aplicação (envelope encryption). Habilitar encryption at-rest no DB. Criptografar backups."
         },
@@ -1166,7 +1765,9 @@
               "Verificar permissões de arquivos de chave: find ${repo_path} -name '*.pem' -o -name '*.key' | xargs ls -la"
             ],
             "pass_criteria": "Chaves em secrets manager ou env vars. Arquivos de chave com permissão restrita (600). Nunca commitadas.",
-            "fail_criteria": "Chaves no código-fonte. Arquivos de chave com permissão world-readable. Chaves em configs commitadas."
+            "fail_criteria": "Chaves no código-fonte. Arquivos de chave com permissão world-readable. Chaves em configs commitadas.",
+            "false_positive_guidance": "Confirmar se a configuração observada é de produção e não de teste/dev. Controles terminados no edge ou provider externo exigem partial/low quando não há evidência local suficiente.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Armazenar chaves em KMS/Vault. Se em arquivo, permissão 600 e fora do repo. Rotacionar chaves comprometidas imediatamente."
         },
@@ -1182,21 +1783,27 @@
               "Verificar se há documentação de política de rotação de chaves."
             ],
             "pass_criteria": "Política de rotação documentada. Mecanismo de rotação implementado (JWKS, key versioning). KMS auto-rotation se disponível.",
-            "fail_criteria": "Sem mecanismo ou política de rotação. Mesma chave desde inception. Rotação requer downtime."
+            "fail_criteria": "Sem mecanismo ou política de rotação. Mesma chave desde inception. Rotação requer downtime.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar key versioning. Usar JWKS para JWT com kid header. Configurar auto-rotation em KMS. Documentar policy de rotação."
         }
-      ]
+      ],
+      "contextual_note": "Este playbook é static-first e deve permanecer executável apenas com código/config local. Quando reports/phase1/tool-capabilities.json estiver disponível, usá-lo para decidir quais confirmações por ferramenta são realmente executáveis no ambiente local; ausência do artefato reduz apenas a profundidade de confirmação, nunca a completude estática."
     },
-
     "security_headers": {
       "task_ref": "SEC-019",
       "domain": "security_headers",
       "title": "Headers de Segurança",
       "priority": "medium",
       "input_requirements": {
-        "required": ["repo_path"],
-        "optional": ["endpoint_base_url"]
+        "required": [
+          "repo_path"
+        ],
+        "optional": [
+          "endpoint_base_url",
+          "tool_capabilities_path"
+        ]
       },
       "checks": [
         {
@@ -1211,7 +1818,8 @@
               "Verificar se CSP é restritivo: não tem unsafe-inline/unsafe-eval sem necessidade."
             ],
             "pass_criteria": "CSP header presente e restritivo. Sem unsafe-inline/unsafe-eval desnecessários.",
-            "fail_criteria": "CSP ausente. CSP com 'unsafe-inline' 'unsafe-eval' sem justificativa."
+            "fail_criteria": "CSP ausente. CSP com 'unsafe-inline' 'unsafe-eval' sem justificativa.",
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
           },
           "remediation": "Implementar CSP restritivo. Usar nonce ou hash para inline scripts. Reportar violations com report-uri."
         },
@@ -1227,7 +1835,8 @@
               "Verificar max-age >= 31536000 (1 ano) e includeSubDomains."
             ],
             "pass_criteria": "HSTS com max-age >= 31536000, includeSubDomains. Preload se possível.",
-            "fail_criteria": "HSTS ausente. max-age muito baixo. Sem includeSubDomains."
+            "fail_criteria": "HSTS ausente. max-age muito baixo. Sem includeSubDomains.",
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
           },
           "remediation": "Adicionar Strict-Transport-Security: max-age=31536000; includeSubDomains; preload."
         },
@@ -1243,7 +1852,8 @@
               "Verificar se CSP frame-ancestors está configurado como alternativa moderna."
             ],
             "pass_criteria": "X-Frame-Options: DENY ou SAMEORIGIN. Ou CSP frame-ancestors configurado.",
-            "fail_criteria": "Sem proteção contra clickjacking. Aplicação pode ser embedded em iframe de terceiros."
+            "fail_criteria": "Sem proteção contra clickjacking. Aplicação pode ser embedded em iframe de terceiros.",
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
           },
           "remediation": "Adicionar X-Frame-Options: DENY (ou SAMEORIGIN se iframe necessário). Preferir CSP frame-ancestors."
         },
@@ -1258,7 +1868,8 @@
               "Se endpoint_base_url: curl -sI ${endpoint_base_url}/ | grep -i x-content-type"
             ],
             "pass_criteria": "X-Content-Type-Options: nosniff presente.",
-            "fail_criteria": "Header ausente. Browser pode MIME-sniff conteúdo."
+            "fail_criteria": "Header ausente. Browser pode MIME-sniff conteúdo.",
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
           },
           "remediation": "Adicionar X-Content-Type-Options: nosniff em todas as respostas."
         },
@@ -1273,21 +1884,27 @@
               "Se endpoint_base_url: curl -sI ${endpoint_base_url}/ | grep -i referrer-policy"
             ],
             "pass_criteria": "Referrer-Policy configurado (strict-origin-when-cross-origin ou no-referrer).",
-            "fail_criteria": "Header ausente. Referrer completo enviado a terceiros."
+            "fail_criteria": "Header ausente. Referrer completo enviado a terceiros.",
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
           },
           "remediation": "Adicionar Referrer-Policy: strict-origin-when-cross-origin (ou no-referrer para máxima privacidade)."
         }
-      ]
+      ],
+      "contextual_note": "Este playbook é static-first e deve permanecer executável apenas com código/config local. Quando reports/phase1/tool-capabilities.json estiver disponível, usá-lo para decidir quais confirmações por ferramenta são realmente executáveis no ambiente local; ausência do artefato reduz apenas a profundidade de confirmação, nunca a completude estática."
     },
-
     "logging_monitoring": {
       "task_ref": "SEC-020",
       "domain": "logging_monitoring",
       "title": "Logs e Monitoramento",
       "priority": "medium",
       "input_requirements": {
-        "required": ["repo_path"],
-        "optional": ["infra_config_path"]
+        "required": [
+          "repo_path"
+        ],
+        "optional": [
+          "infra_config_path",
+          "tool_capabilities_path"
+        ]
       },
       "checks": [
         {
@@ -1303,7 +1920,9 @@
               "grep -rn -iE '(log.*req\\.body|log.*request\\.data|logger.*payload|console\\.log.*password)' ${repo_path}"
             ],
             "pass_criteria": "Logs sem dados PII/sensíveis. Redação de campos sensíveis implementada.",
-            "fail_criteria": "Dados sensíveis em logs. Stack traces com variáveis PII."
+            "fail_criteria": "Dados sensíveis em logs. Stack traces com variáveis PII.",
+            "false_positive_guidance": "Verificar wrappers, appenders, pipelines de observabilidade e documentação versionada antes de concluir ausência do controle de logging/alerta.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar redação de campos sensíveis. Mascarar PII em logs. Nunca logar request bodies completos."
         },
@@ -1319,7 +1938,8 @@
               "Verificar se logs incluem: who (user_id), what (action), when (timestamp), where (IP), result (success/fail)."
             ],
             "pass_criteria": "Audit trail para ações críticas. Logs incluem who/what/when/where/result.",
-            "fail_criteria": "Sem logs de auditoria. Ações críticas não rastreáveis."
+            "fail_criteria": "Sem logs de auditoria. Ações críticas não rastreáveis.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar audit logging para: auth events, permission changes, data access, admin actions. Incluir user_id, action, timestamp, IP, result."
         },
@@ -1335,7 +1955,8 @@
               "Verificar se há formatador consistente configurado."
             ],
             "pass_criteria": "Logs estruturados (JSON/JSONL). Logger configurado com formatador consistente.",
-            "fail_criteria": "Logs plaintext sem estrutura. console.log para logging em produção."
+            "fail_criteria": "Logs plaintext sem estrutura. console.log para logging em produção.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Usar logger estruturado (pino, winston JSON, structlog). Formato JSONL para facilitar parsing e análise."
         },
@@ -1351,7 +1972,8 @@
               "Verificar se há integração com monitoring (Datadog, Prometheus, Grafana, CloudWatch)."
             ],
             "pass_criteria": "Alertas configurados para eventos de segurança. Integração com plataforma de monitoring.",
-            "fail_criteria": "Sem alertas de segurança. Eventos críticos não geram notificação."
+            "fail_criteria": "Sem alertas de segurança. Eventos críticos não geram notificação.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Configurar alertas para: auth failures > threshold, error rate spikes, suspicious patterns. Integrar com Sentry/Datadog/PagerDuty."
         },
@@ -1367,22 +1989,30 @@
               "Verificar se correlation ID é propagado para serviços downstream."
             ],
             "pass_criteria": "Correlation ID gerado por request. Propagado em chamadas entre serviços. Presente em todos os logs.",
-            "fail_criteria": "Sem correlation ID. Impossível rastrear request através de serviços."
+            "fail_criteria": "Sem correlation ID. Impossível rastrear request através de serviços.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar middleware de correlation ID. Propagar via header (X-Request-ID). Incluir em todos os logs. Considerar OpenTelemetry."
         }
-      ]
+      ],
+      "contextual_note": "Este playbook é static-first e deve permanecer executável apenas com código/config local. Quando reports/phase1/tool-capabilities.json estiver disponível, usá-lo para decidir quais confirmações por ferramenta são realmente executáveis no ambiente local; ausência do artefato reduz apenas a profundidade de confirmação, nunca a completude estática."
     },
-
     "infrastructure": {
       "task_ref": "SEC-021",
       "domain": "infrastructure",
       "title": "Infraestrutura",
       "priority": "high",
       "input_requirements": {
-        "required": ["repo_path"],
-        "optional": ["infra_config_path", "endpoint_base_url"]
+        "required": [
+          "repo_path"
+        ],
+        "optional": [
+          "infra_config_path",
+          "endpoint_base_url",
+          "tool_capabilities_path"
+        ]
       },
+      "contextual_note": "Este playbook mede postura observável em Dockerfiles, compose, manifests, terraform e documentação versionada. Firewall real, WAF ativo, TLS efetivo e proteções do provedor só podem ser afirmados quando existe evidência local suficiente ou confirmação runtime; caso contrário, usar partial com confidence=low. Quando reports/phase1/tool-capabilities.json estiver disponível, usá-lo para decidir quais confirmações por ferramenta são realmente executáveis no ambiente local; ausência do artefato reduz apenas a profundidade de confirmação, nunca a completude estática.",
       "checks": [
         {
           "check_id": "IF-001",
@@ -1396,8 +2026,10 @@
               "Verificar se load balancer termina TLS e backend aceita apenas connections internas.",
               "Se endpoint_base_url: verificar redirect HTTP→HTTPS e certificado válido."
             ],
-            "pass_criteria": "HTTPS obrigatório. HTTP redireciona. Certificado válido e não expirado.",
-            "fail_criteria": "Aplicação acessível via HTTP sem redirect. Certificado expirado ou self-signed em produção."
+            "pass_criteria": "A configuração versionada indica TLS obrigatório ou terminação TLS no edge com backend apenas interno. Se endpoint_base_url for fornecido, a sonda confirma redirect HTTP->HTTPS e certificado válido.",
+            "fail_criteria": "A configuração versionada expõe HTTP sem redirect, desabilita TLS ou a sonda runtime confirma acesso inseguro. Certificado expirado/self-signed só é fail quando confirmado pela sonda, não por inferência.",
+            "false_positive_guidance": "TLS pode ser terminado em load balancer/CDN fora do repo. Sem endpoint nem IaC correspondente, evitar fail conclusivo e usar partial com confidence=low.",
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
           },
           "remediation": "Configurar HTTPS obrigatório. Redirect 301 em HTTP. Certificado válido (Let's Encrypt). HSTS header."
         },
@@ -1412,8 +2044,10 @@
               "Verificar se há network policies em Kubernetes: find ${infra_config_path} -name '*network*policy*'",
               "Verificar se portas expostas são mínimas: grep -rn -iE '(expose|ports:)' ${infra_config_path}/docker-compose*"
             ],
-            "pass_criteria": "Firewall configurado com deny-by-default. Apenas portas necessárias expostas. Security groups restritivos.",
-            "fail_criteria": "Sem firewall. Todas as portas abertas. Security group com 0.0.0.0/0 em portas sensíveis."
+            "pass_criteria": "Há evidência versionada de firewall/security groups/network policies com deny-by-default ou exposição mínima de portas.",
+            "fail_criteria": "A IaC/config versionada mostra portas sensíveis expostas amplamente, ausência de segmentação básica ou regras permissivas (ex: 0.0.0.0/0) em serviços sensíveis.",
+            "false_positive_guidance": "Firewalls gerenciados exclusivamente no provedor cloud podem não aparecer no repo. Se não houver IaC nem docs locais, usar partial com confidence=low em vez de assumir ausência total.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Configurar firewall deny-by-default. Abrir apenas portas necessárias (80, 443). DB/cache apenas acessível internamente. Security groups restritivos."
         },
@@ -1428,8 +2062,10 @@
               "Verificar se há proteção a nível de CDN/proxy (Cloudflare, AWS CloudFront com WAF).",
               "Verificar se WAF tem regras para OWASP Top 10."
             ],
-            "pass_criteria": "WAF configurado com regras para OWASP Top 10. Ou CDN com proteção integrada.",
-            "fail_criteria": "Sem WAF ou proteção equivalente em endpoints públicos."
+            "pass_criteria": "Há evidência no repo de WAF, CDN com proteção equivalente ou documentação/IaC que indique esse controle para endpoints públicos.",
+            "fail_criteria": "Não há qualquer evidência local de WAF/proteção equivalente para endpoints públicos e o projeto expõe superfície relevante. Se o controle puder existir apenas no edge externo, usar partial com confidence=low.",
+            "false_positive_guidance": "Muitas equipes configuram WAF diretamente na CDN/provedor e não versionam essa regra no repo. Sem endpoint ou IaC, a ausência de evidência é indício fraco, não prova de ausência do controle.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar WAF (Cloudflare, AWS WAF, Azure WAF, ModSecurity). Configurar regras OWASP Core Rule Set. Monitorar falsos positivos."
         },
@@ -1445,8 +2081,10 @@
               "grep -rn -iE '(internal.*network|private.*subnet|vnet|vpc|network.*isolat)' ${infra_config_path}",
               "Verificar Kubernetes: namespaces, network policies, service mesh."
             ],
-            "pass_criteria": "DB em rede privada. Frontend/backend separados. Comunicação interna autenticada.",
-            "fail_criteria": "Todos os serviços na mesma rede. DB acessível publicamente. Sem segmentação."
+            "pass_criteria": "A config versionada indica DB/rede de dados não exposta publicamente, separação lógica entre camadas e comunicação interna controlada.",
+            "fail_criteria": "A config versionada mostra DB acessível publicamente, todos os serviços na mesma rede sem isolamento relevante ou ausência clara de segmentação mínima.",
+            "false_positive_guidance": "Segmentação pode existir em VPC/subnets definidas fora do repo. Sem IaC correspondente, trate a ausência de evidência como partial/low, não como prova absoluta.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Segregar em camadas: DMZ (frontend), app (backend), data (DB). DB apenas acessível do backend. Network policies em Kubernetes."
         },
@@ -1462,8 +2100,10 @@
               "Verificar se há teste de restore documentado.",
               "Verificar se backups são armazenados em localização diferente (cross-region, off-site)."
             ],
-            "pass_criteria": "Backups automatizados. Testados periodicamente. Armazenados off-site. Política de retenção definida.",
-            "fail_criteria": "Sem backups configurados. Backups nunca testados. Mesmo local de armazenamento."
+            "pass_criteria": "Há evidência versionada de rotina de backup, restore ou documentação operacional que indique política de backup e retenção.",
+            "fail_criteria": "O repo não contém qualquer evidência de backup/restore para componentes críticos e há indícios de persistência relevante. Se backups puderem ser geridos fora do repo, usar partial com confidence=low.",
+            "false_positive_guidance": "Backups de bancos gerenciados podem existir apenas no provedor cloud. A falta de scripts locais não prova ausência do controle; exige partial/low quando o controle provavelmente é externo.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Configurar backups automatizados (diário DB, semanal full). Testar restore mensalmente. Armazenar off-site/cross-region. Criptografar backups."
         },
@@ -1478,23 +2118,72 @@
               "Verificar se há CDN/proxy com proteção DDoS (Cloudflare, AWS CloudFront, etc.).",
               "Verificar se há rate limiting a nível de infraestrutura (nginx, load balancer)."
             ],
-            "pass_criteria": "Proteção DDoS via CDN/cloud provider. Rate limiting na infra. Plano de resposta a DDoS.",
-            "fail_criteria": "Sem proteção DDoS. Aplicação exposta diretamente. Sem rate limiting na infra."
+            "pass_criteria": "Há evidência no repo de CDN/proxy, rate limiting de infraestrutura ou documentação operacional que indique mitigação DDoS.",
+            "fail_criteria": "Não há qualquer evidência local de mitigação DDoS e a config versionada sugere exposição direta do origin sem rate limiting/edge protection. Quando a proteção puder existir apenas no provedor, usar partial com confidence=low.",
+            "false_positive_guidance": "Proteção DDoS é frequentemente externa ao repo (Cloudflare, AWS Shield, etc.). Sem IaC/docs ou confirmação runtime, a conclusão deve ser moderada.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar CDN com proteção DDoS (Cloudflare, AWS Shield). Rate limiting em nginx/load balancer. Não expor IP do origin server."
+        },
+        {
+          "check_id": "IF-007",
+          "name": "Container hardening ausente",
+          "severity_if_fail": "HIGH",
+          "owasp_refs": [
+            "A05:2021",
+            "CWE-250",
+            "CWE-269"
+          ],
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "CHECK USER não-root em Dockerfile: grep -rn -E '^USER\\s+' ${repo_path}/Dockerfile* ${infra_config_path}/Dockerfile*. Ausência = fail. USER root explícito = fail.",
+              "CHECK imagem base imutável: grep -rn -E '^FROM\\s+' ${repo_path}/Dockerfile* | grep -vE ':[a-zA-Z0-9._-]+@sha256:|:[0-9]+\\.[0-9]+\\.[0-9]+'. Matches com :latest ou sem tag = fail.",
+              "CHECK docker-compose: privileged mode: grep -rn -E 'privileged:\\s*true' ${infra_config_path}/docker-compose*.yml. Match = CRITICAL.",
+              "CHECK docker-compose: docker.sock montado: grep -rn -E '/var/run/docker\\.sock' ${infra_config_path}/docker-compose*.yml. Match = CRITICAL (exceto em services explicitamente de observabilidade com justificativa).",
+              "CHECK capabilities: grep -rn -E '(cap_add|cap_drop|capabilities)' ${infra_config_path}/docker-compose*.yml ${infra_config_path}/k8s/. Ausência de cap_drop: ALL ou similar = partial.",
+              "CHECK read-only filesystem: grep -rn -E '(read_only:\\s*true|readOnlyRootFilesystem)' ${infra_config_path}. Ausência = low severity, mas reportar.",
+              "CHECK resource limits: grep -rn -E '(mem_limit|cpus|resources\\.limits)' ${infra_config_path}. Ausência em produção = MEDIUM.",
+              "CHECK secrets em ENV de Dockerfile: grep -rn -E '^ENV\\s+.*(PASSWORD|SECRET|KEY|TOKEN)' ${repo_path}/Dockerfile* (cross-ref SC-001).",
+              "CHECK Kubernetes: securityContext runAsNonRoot, allowPrivilegeEscalation, seccompProfile: grep -rn -E '(runAsNonRoot|allowPrivilegeEscalation|seccompProfile)' ${infra_config_path}/k8s/.",
+              "CHECK Dockerfile COPY de arquivos sensíveis: COPY .env, COPY credentials.json, COPY *.pem — qualquer um = CRITICAL."
+            ],
+            "pass_criteria": "Dockerfile tem USER não-root. Imagem base pinada por tag/digest específico (não :latest). docker-compose sem privileged e sem docker.sock mount. Resource limits definidos. securityContext hardened em K8s.",
+            "fail_criteria": "USER root ou ausente. :latest ou sem tag. privileged: true. docker.sock montado sem justificativa. Secrets em ENV do Dockerfile. COPY de .env/credentials.",
+            "false_positive_guidance": "Imagens de build multi-stage podem usar root temporariamente — importa o USER da imagem final. docker.sock em stack de observabilidade (Portainer, cAdvisor) é uso intencional mas ainda deve ser documentado.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial.",
+            "tooling": {
+              "preferred_tools": [
+                "trivy"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "container_iac_scanners",
+              "evidence_requirements": [
+                "tool_output",
+                "config_artifact"
+              ],
+              "confidence_effect": "Scanner de container/IaC pode elevar confidence quando confirma root, privileged, docker.sock ou tag mutável na imagem final."
+            }
+          },
+          "remediation": "Adicionar USER não-root no final do Dockerfile (ex: RUN adduser -D appuser && USER appuser). Pinar base images por digest (FROM node:18.19.0-alpine@sha256:abc...). Nunca usar privileged: true. Nunca montar /var/run/docker.sock sem análise de risco. Em K8s: runAsNonRoot: true, readOnlyRootFilesystem: true, allowPrivilegeEscalation: false, drop ALL capabilities e adicionar apenas as necessárias. Secrets via env do orquestrador, nunca no Dockerfile."
         }
       ]
     },
-
     "devsecops": {
       "task_ref": "SEC-022",
       "domain": "devsecops",
       "title": "DevSecOps",
       "priority": "medium",
       "input_requirements": {
-        "required": ["repo_path"],
-        "optional": ["ci_config_path"]
+        "required": [
+          "repo_path"
+        ],
+        "optional": [
+          "ci_config_path",
+          "tool_capabilities_path"
+        ]
       },
+      "contextual_note": "Este playbook mede apenas controles observáveis em workflows, hooks, CODEOWNERS e arquivos versionados. Branch protection, approval rules e trilhas de auditoria do provedor podem existir fora do repo; quando não forem observáveis localmente, o resultado deve ser partial com confidence=low. Quando reports/phase1/tool-capabilities.json estiver disponível, usá-lo para decidir quais confirmações por ferramenta são realmente executáveis no ambiente local; ausência do artefato reduz apenas a profundidade de confirmação, nunca a completude estática.",
       "checks": [
         {
           "check_id": "DO-001",
@@ -1507,8 +2196,10 @@
               "Verificar presença de CODEOWNERS: ls ${repo_path}/CODEOWNERS ${repo_path}/.github/CODEOWNERS",
               "Verificar se CI/CD requer approval antes de merge."
             ],
-            "pass_criteria": "Branch protection habilitado. Review obrigatório. CODEOWNERS definido para paths críticos.",
-            "fail_criteria": "Push direto para main/master permitido. Sem review obrigatório."
+            "pass_criteria": "Há evidência versionada de processo de review obrigatório, CODEOWNERS para paths críticos e/ou documentação que referencie branch protection.",
+            "fail_criteria": "O repo não mostra qualquer evidência de review obrigatório e ainda sugere fluxo permissivo para mudanças críticas. Se branch protection existir apenas em settings externos, usar partial com confidence=low.",
+            "false_positive_guidance": "Branch protection normalmente fica fora do repo. CODEOWNERS ausente não prova ausência de review, e documentação interna pode referenciar o controle. Sem acesso à plataforma, evitar fail conclusivo.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Configurar branch protection. Exigir pelo menos 1 approval. CODEOWNERS para paths de segurança. Bloquear push direto para main."
         },
@@ -1523,8 +2214,10 @@
               "grep -rn -iE '(snyk|sonarqube|semgrep|bandit|eslint-security|brakeman|gosec|trivy|grype)' ${ci_config_path} ${repo_path}",
               "Verificar se análise de segurança bloqueia merge/deploy em caso de findings."
             ],
-            "pass_criteria": "SAST integrado na CI. Findings bloqueiam merge. Scan de dependencies na CI.",
-            "fail_criteria": "CI sem nenhuma análise de segurança. Apenas lint e testes funcionais."
+            "pass_criteria": "Os workflows versionados mostram análise de segurança na CI (SAST, dependency scan ou equivalente) com sinal claro de execução recorrente.",
+            "fail_criteria": "A CI observável no repo não contém nenhuma análise de segurança e executa apenas lint/testes funcionais.",
+            "false_positive_guidance": "Análise de segurança pode rodar em pipeline centralizado, reusable workflows privados ou plataforma externa. Se houver referência documental mas não definição local, usar partial com confidence=low.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Integrar SAST (Semgrep, SonarQube) na CI. Configurar para bloquear em findings high/critical. Adicionar dependency scanning."
         },
@@ -1539,8 +2232,10 @@
               "Verificar se há pre-commit hook para secrets: cat ${repo_path}/.pre-commit-config.yaml 2>/dev/null",
               "Verificar se GitHub Advanced Security secret scanning está habilitado."
             ],
-            "pass_criteria": "Secrets scanning em CI e/ou pre-commit. Alertas configurados para detecções.",
-            "fail_criteria": "Sem secrets scanning. Segredos podem ser commitados sem detecção."
+            "pass_criteria": "Há evidência versionada de secrets scanning em CI, pre-commit ou workflow reutilizável referenciado pelo repo.",
+            "fail_criteria": "Não há evidência local de secrets scanning e o fluxo observável permite commit/merge sem esse tipo de detecção.",
+            "false_positive_guidance": "GitHub Advanced Security ou scanning centralizado da organização pode existir fora do repo. Se houver menção documental mas não configuração local, usar partial com confidence=low.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar gitleaks ou trufflehog na CI. Adicionar pre-commit hook com detect-secrets. Habilitar GitHub secret scanning se disponível."
         },
@@ -1555,8 +2250,10 @@
               "Verificar se há config de SAST: find ${repo_path} -name '.semgrep*' -o -name 'sonar-project.properties' -o -name '.bandit'",
               "Verificar se rules são mantidas atualizadas."
             ],
-            "pass_criteria": "SAST configurado e executando na CI. Rules atualizadas. Findings triaged.",
-            "fail_criteria": "Sem SAST. Análise estática limitada a linting funcional."
+            "pass_criteria": "Há evidência versionada de SAST configurado e executando na CI, com regras ou integração observável no repo.",
+            "fail_criteria": "O repo não mostra SAST algum e a análise estática observável se limita a linting funcional.",
+            "false_positive_guidance": "SAST pode rodar em pipelines compartilhados fora do repo. Sem evidência local, preferir partial/low quando houver indícios documentais de uso corporativo.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar Semgrep (open source, multi-linguagem) ou SonarQube. Configurar na CI. Triage findings regularmente."
         },
@@ -1570,8 +2267,10 @@
               "grep -rn -iE '(zap|owasp.*zap|nikto|burp|dast|dynamic.*scan|nuclei)' ${ci_config_path} ${repo_path}",
               "Verificar se há scan dinâmico em ambiente de staging antes de deploy para produção."
             ],
-            "pass_criteria": "DAST executado em staging antes de deploy para produção. Findings críticos bloqueiam deploy.",
-            "fail_criteria": "Sem DAST. Aplicação nunca testada dinamicamente antes de produção."
+            "pass_criteria": "Há evidência versionada de job de DAST ou referência explícita a scan dinâmico antes de release/staging.",
+            "fail_criteria": "O repo não mostra qualquer indício de DAST no fluxo versionado. Se o DAST puder existir em plataforma externa não versionada, usar partial com confidence=low.",
+            "false_positive_guidance": "DAST frequentemente roda fora do repo em plataformas de segurança ou pipelines centrais. A ausência local é indício útil, mas não prova absoluta.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar OWASP ZAP ou Nuclei em CI contra staging. Scan antes de deploy para produção. Triage findings antes de release."
         },
@@ -1586,22 +2285,28 @@
               "Verificar se há approval gate antes de deploy para produção.",
               "Verificar se há rollback automatizado em caso de falha."
             ],
-            "pass_criteria": "Deploys logados com who/what/when. Approval para produção. Rollback automatizado.",
-            "fail_criteria": "Deploys sem rastreabilidade. Qualquer pessoa pode deployar para produção. Sem rollback."
+            "pass_criteria": "Os workflows e docs versionados mostram deploy rastreável, approval gate e/ou estratégia de rollback observável no repo.",
+            "fail_criteria": "O fluxo de deploy observável no repo não mostra rastreabilidade, approval gate nem rollback. Se esses controles existirem apenas na plataforma de deploy, usar partial com confidence=low.",
+            "false_positive_guidance": "Audit trail e approvals podem ser impostos por GitHub Actions environments, ArgoCD, Vercel, GitLab ou outro provedor fora do repo. Sem integração visível, evitar fail categórico.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar audit trail para deploys. Exigir approval para produção. Configurar rollback automático em caso de health check failure."
         }
       ]
     },
-
     "data_security": {
       "task_ref": "SEC-023",
       "domain": "data_security",
       "title": "Segurança de Dados",
       "priority": "critical",
       "input_requirements": {
-        "required": ["repo_path"],
-        "optional": ["docs_path"]
+        "required": [
+          "repo_path"
+        ],
+        "optional": [
+          "docs_path",
+          "tool_capabilities_path"
+        ]
       },
       "checks": [
         {
@@ -1617,7 +2322,9 @@
               "Verificar se campos classificados como confidencial/restrito têm proteção adicional."
             ],
             "pass_criteria": "Dados classificados. PII com proteção proporcional à classificação. Campos sensíveis criptografados.",
-            "fail_criteria": "Sem classificação de dados. PII armazenado sem proteção adicional."
+            "fail_criteria": "Sem classificação de dados. PII armazenado sem proteção adicional.",
+            "false_positive_guidance": "Verificar camadas de serialização, retenção ou anonimização centralizadas antes de concluir exposição direta. Exigências regulatórias fora do escopo do projeto devem virar partial/not_applicable.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Classificar dados por sensibilidade. Criptografar campos sensíveis. Implementar access control por classificação."
         },
@@ -1633,7 +2340,8 @@
               "Verificar se dados temporários (logs, tokens expirados, sessões antigas) são limpos."
             ],
             "pass_criteria": "Coleta mínima de dados. Dados temporários com cleanup automático. Minimização aplicada.",
-            "fail_criteria": "Coleta de dados além do necessário. Dados temporários acumulando indefinidamente."
+            "fail_criteria": "Coleta de dados além do necessário. Dados temporários acumulando indefinidamente.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Aplicar princípio da minimização. Coletar apenas dados necessários. Configurar cleanup de dados temporários. Revisar campos coletados periodicamente."
         },
@@ -1649,7 +2357,8 @@
               "Verificar se há documentação de política de retenção."
             ],
             "pass_criteria": "Política de retenção documentada e implementada. Cleanup automático. Diferentes TTLs por tipo de dado.",
-            "fail_criteria": "Sem política de retenção. Dados acumulam indefinidamente. Sem cleanup automático."
+            "fail_criteria": "Sem política de retenção. Dados acumulam indefinidamente. Sem cleanup automático.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Definir política de retenção por tipo de dado. Implementar cleanup automático. Documentar e auditar compliance."
         },
@@ -1666,7 +2375,8 @@
               "Verificar se exports/downloads de dados incluem anonimização."
             ],
             "pass_criteria": "Dados anonimizados para analytics. Ambientes não-produção com dados anonimizados. Exports com opção de anonimização.",
-            "fail_criteria": "Dados reais em ambientes de dev. Analytics com PII não anonimizado. Sem mecanismo de anonimização."
+            "fail_criteria": "Dados reais em ambientes de dev. Analytics com PII não anonimizado. Sem mecanismo de anonimização.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar anonimização para analytics e ambientes não-produção. Usar pseudonimização reversível onde necessário para negócio. Mascarar PII em exports."
         },
@@ -1685,21 +2395,27 @@
               "Verificar se há base legal definida para cada tratamento de dados pessoais."
             ],
             "pass_criteria": "Consentimento implementado. Portabilidade disponível. Exclusão/anonimização funcional. Base legal documentada.",
-            "fail_criteria": "Sem mecanismo de consentimento. Sem portabilidade. Sem direito ao esquecimento. Sem documentação LGPD."
+            "fail_criteria": "Sem mecanismo de consentimento. Sem portabilidade. Sem direito ao esquecimento. Sem documentação LGPD.",
+            "false_positive_guidance": "Verificar camadas de serialização, retenção ou anonimização centralizadas antes de concluir exposição direta. Exigências regulatórias fora do escopo do projeto devem virar partial/not_applicable.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar consent management. Criar endpoints de portabilidade (export JSON/CSV). Implementar exclusão/anonimização. Documentar base legal por tratamento. Designar DPO."
         }
-      ]
+      ],
+      "contextual_note": "Este playbook é static-first e deve permanecer executável apenas com código/config local. Quando reports/phase1/tool-capabilities.json estiver disponível, usá-lo para decidir quais confirmações por ferramenta são realmente executáveis no ambiente local; ausência do artefato reduz apenas a profundidade de confirmação, nunca a completude estática."
     },
-
     "frontend_security": {
       "task_ref": "SEC-024",
       "domain": "frontend_security",
       "title": "Segurança de Frontend",
       "priority": "medium",
       "input_requirements": {
-        "required": ["repo_path"],
-        "optional": []
+        "required": [
+          "repo_path"
+        ],
+        "optional": [
+          "tool_capabilities_path"
+        ]
       },
       "checks": [
         {
@@ -1714,7 +2430,9 @@
               "Verificar se tokens em localStorage são de baixo risco (public API keys) ou de alto risco (auth tokens)."
             ],
             "pass_criteria": "Auth tokens em httpOnly cookies. Apenas dados não-sensíveis em localStorage.",
-            "fail_criteria": "JWT/auth tokens armazenados em localStorage. Acessíveis via XSS."
+            "fail_criteria": "JWT/auth tokens armazenados em localStorage. Acessíveis via XSS.",
+            "false_positive_guidance": "Verificar build-time transforms, sanitização central, CSP e dependências efetivamente distribuídas ao browser antes de concluir fail. Dependências só de dev exigem triagem.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Mover auth tokens para httpOnly cookies. Se SPA, usar BFF (Backend For Frontend) pattern com cookies httpOnly. localStorage apenas para preferências não-sensíveis."
         },
@@ -1731,7 +2449,9 @@
               "Verificar se CMS/rich text content é sanitizado server-side E client-side."
             ],
             "pass_criteria": "Todos os usos de innerHTML/v-html sanitizados com DOMPurify. Ou dados originam-se de fonte confiável (sistema, não usuário).",
-            "fail_criteria": "innerHTML/v-html com dados de usuário sem sanitização."
+            "fail_criteria": "innerHTML/v-html com dados de usuário sem sanitização.",
+            "false_positive_guidance": "Verificar build-time transforms, sanitização central, CSP e dependências efetivamente distribuídas ao browser antes de concluir fail. Dependências só de dev exigem triagem.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Sanitizar com DOMPurify antes de renderizar HTML dinâmico. Preferir text content ao invés de innerHTML. Sanitizar server-side como defesa em profundidade."
         },
@@ -1748,7 +2468,22 @@
               "Verificar se CDN scripts usam SRI (Subresource Integrity): grep -rn 'integrity=' ${repo_path}"
             ],
             "pass_criteria": "Zero vulnerabilidades high/critical em dependências frontend. CDN scripts com SRI.",
-            "fail_criteria": "Vulnerabilidades high/critical em dependências frontend. CDN scripts sem SRI."
+            "fail_criteria": "Vulnerabilidades high/critical em dependências frontend. CDN scripts sem SRI.",
+            "false_positive_guidance": "Verificar build-time transforms, sanitização central, CSP e dependências efetivamente distribuídas ao browser antes de concluir fail. Dependências só de dev exigem triagem.",
+            "confidence_guidance": "Usar o output da ferramenta como corroboração local, não como verdade cega. Subir confidence somente quando o pacote/arquivo/artefato apontado coincide com o código auditado; finding sem ferramenta disponível deve degradar para partial/low conforme fallback.",
+            "tooling": {
+              "preferred_tools": [
+                "npm audit",
+                "osv-scanner"
+              ],
+              "fallback_mode": "partial_with_static_manifest_review",
+              "capability_requirement": "dependency_vulnerability_scanners",
+              "evidence_requirements": [
+                "tool_output",
+                "config_artifact"
+              ],
+              "confidence_effect": "Corroboração por scanner local eleva confidence quando a dependência vulnerável está no bundle ou cadeia realmente distribuída ao frontend."
+            }
           },
           "remediation": "Atualizar dependências vulneráveis. Adicionar SRI em scripts de CDN. Configurar npm audit na CI."
         },
@@ -1765,22 +2500,30 @@
               "Verificar se há validações de formulário que não são replicadas server-side."
             ],
             "pass_criteria": "Toda lógica de negócio e validação existe no backend. Frontend é UX, não enforcement.",
-            "fail_criteria": "Cálculos de preço/desconto apenas no frontend. Validações de regra de negócio sem server-side."
+            "fail_criteria": "Cálculos de preço/desconto apenas no frontend. Validações de regra de negócio sem server-side.",
+            "false_positive_guidance": "Verificar build-time transforms, sanitização central, CSP e dependências efetivamente distribuídas ao browser antes de concluir fail. Dependências só de dev exigem triagem.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Mover toda lógica de negócio para o backend. Frontend pode validar para UX, mas backend é source of truth. Nunca confiar em cálculos do client."
         }
-      ]
+      ],
+      "contextual_note": "Este playbook é static-first e deve permanecer executável apenas com código/config local. Quando reports/phase1/tool-capabilities.json estiver disponível, usá-lo para decidir quais confirmações por ferramenta são realmente executáveis no ambiente local; ausência do artefato reduz apenas a profundidade de confirmação, nunca a completude estática."
     },
-
     "ai_llm_security": {
       "task_ref": "SEC-025",
       "domain": "ai_llm_security",
       "title": "Segurança de IA/LLM",
       "priority": "high",
       "input_requirements": {
-        "required": ["repo_path"],
-        "optional": ["endpoint_base_url"]
+        "required": [
+          "repo_path"
+        ],
+        "optional": [
+          "endpoint_base_url",
+          "tool_capabilities_path"
+        ]
       },
+      "contextual_note": "Este playbook avalia apenas integrações, prompts, tools, wrappers e guardrails observáveis no repositório. Controles nativos do provider ou políticas aplicadas fora do código só contam quando estão explicitamente configurados, documentados ou invocados no repo. Quando reports/phase1/tool-capabilities.json estiver disponível, usá-lo para decidir quais confirmações por ferramenta são realmente executáveis no ambiente local; ausência do artefato reduz apenas a profundidade de confirmação, nunca a completude estática.",
       "checks": [
         {
           "check_id": "AI-001",
@@ -1795,8 +2538,10 @@
               "Buscar por concatenação de input: grep -rn -E '(prompt.*\\+.*req|f\".*{.*input|`.*\\$\\{.*user)' ${repo_path}",
               "Verificar se há input validation antes de envio ao LLM."
             ],
-            "pass_criteria": "User input sanitizado. Separação clara system/user. Input validation presente. Delimitadores de contexto.",
-            "fail_criteria": "Input de usuário concatenado diretamente no system prompt. Sem sanitização. Sem delimitadores."
+            "pass_criteria": "O código mostra separação clara entre system/user, validação de input e delimitadores de contexto antes do envio ao LLM.",
+            "fail_criteria": "Há evidência direta de input de usuário concatenado no system prompt ou de ausência total de delimitação/sanitização em caminho relevante.",
+            "false_positive_guidance": "Frameworks que montam mensagens em wrappers, templates ou middlewares podem separar system/user fora do arquivo principal. Antes de marcar fail, verificar helpers, builders e camadas de prompt composition.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Separar system prompt de user input. Usar delimitadores claros (XML tags, markers). Sanitizar input. Implementar prompt injection detection. Validar output antes de uso."
         },
@@ -1813,7 +2558,22 @@
               "Verificar se LLM pode executar código arbitrário, fazer requests HTTP arbitrárias, ou acessar filesystem irrestritamente."
             ],
             "pass_criteria": "Tools com escopo mínimo. Ações destrutivas com approval. Sem execução de código arbitrário. Least privilege aplicado.",
-            "fail_criteria": "LLM com acesso a shell/exec irrestrito. Tools sem escopo definido. Sem approval para ações destrutivas."
+            "fail_criteria": "LLM com acesso a shell/exec irrestrito. Tools sem escopo definido. Sem approval para ações destrutivas.",
+            "false_positive_guidance": "Verificar builders centrais de prompt, wrappers de tools e policy layers compartilhadas antes de concluir ausência real do controle. Sem corroboração forte, manter confidence em medium/low.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial.",
+            "tooling": {
+              "preferred_tools": [
+                "semgrep"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "sast_pattern_scanners",
+              "evidence_requirements": [
+                "tool_output",
+                "code_snippet",
+                "doc_reference"
+              ],
+              "confidence_effect": "Elevar confidence apenas quando o inventário de tools e o código mostram acesso amplo do modelo a ferramentas sensíveis sem scoping observável."
+            }
           },
           "remediation": "Aplicar least privilege em tools. Implementar approval para ações destrutivas. Sandboxar execução de código. Definir escopo explícito por tool."
         },
@@ -1830,7 +2590,9 @@
               "Verificar se há rate limiting para chamadas ao LLM."
             ],
             "pass_criteria": "Input filtrado/moderado. Limite de tamanho. Rate limiting. Detecção de patterns maliciosos.",
-            "fail_criteria": "Input enviado ao LLM sem qualquer filtragem. Sem limite de tamanho. Sem rate limiting."
+            "fail_criteria": "Input enviado ao LLM sem qualquer filtragem. Sem limite de tamanho. Sem rate limiting.",
+            "false_positive_guidance": "Verificar builders centrais de prompt, wrappers de tools e policy layers compartilhadas antes de concluir ausência real do controle. Sem corroboração forte, manter confidence em medium/low.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Implementar input moderation (content filter). Limitar tamanho de input. Rate limit por user. Detectar patterns de jailbreak/injection."
         },
@@ -1847,7 +2609,9 @@
               "Verificar se output do LLM é sanitizado antes de exibição."
             ],
             "pass_criteria": "Output sanitizado. Markdown/HTML filtrado de links externos. Dados sensíveis não vazam no output.",
-            "fail_criteria": "LLM output renderizado como HTML sem sanitização. Links externos permitidos em output. System prompt vazando."
+            "fail_criteria": "LLM output renderizado como HTML sem sanitização. Links externos permitidos em output. System prompt vazando.",
+            "false_positive_guidance": "Verificar builders centrais de prompt, wrappers de tools e policy layers compartilhadas antes de concluir ausência real do controle. Sem corroboração forte, manter confidence em medium/low.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Sanitizar output do LLM. Filtrar markdown de imagens/links externos. Validar que system prompt não aparece no output. Implementar output guardrails."
         },
@@ -1864,9 +2628,194 @@
               "Verificar se logs são compatíveis com framework ESAA (event sourcing para agentes)."
             ],
             "pass_criteria": "Interações logadas. Input/output rastreáveis. Decisões de tool-use auditáveis. Métricas de uso coletadas.",
-            "fail_criteria": "Sem logs de interações LLM. Decisões não rastreáveis. Sem métricas de uso."
+            "fail_criteria": "Sem logs de interações LLM. Decisões não rastreáveis. Sem métricas de uso.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
           },
           "remediation": "Logar todas as interações: input (redact PII), output, model, tokens, latência, user_id. Implementar event sourcing para decisões de agentes (ESAA). Reter logs para auditoria."
+        },
+        {
+          "check_id": "AI-006",
+          "name": "Proveniência de modelos e dados de treino",
+          "severity_if_fail": "HIGH",
+          "owasp_refs": [
+            "LLM03:2025",
+            "LLM04:2025",
+            "CWE-1357"
+          ],
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Identificar modelos usados: grep -rn --include='*.{py,js,ts,go,java}' -iE '(openai|anthropic|huggingface|transformers|ollama|llama_index|langchain.*llm|bedrock|vertex.*ai|azure.*openai)' ${repo_path}",
+              "Para modelos remotos (OpenAI, Anthropic, Bedrock): verificar se a versão está pinada (ex: gpt-4-0613 vs gpt-4).",
+              "Para modelos locais (HuggingFace, Ollama): verificar se o hash/revision do modelo é fixado: grep -rn -E 'from_pretrained\\(.*revision=|model_id.*@[a-f0-9]+' ${repo_path}.",
+              "Verificar se há carregamento de modelos de URLs arbitrárias: grep -rn -iE '(download.*model|fetch.*weights|torch\\.hub\\.load)' ${repo_path}.",
+              "Verificar se datasets de fine-tuning têm lineage documentado (origem, data, transformações).",
+              "Verificar se há validação de checksum/signature em modelos baixados.",
+              "Buscar por prompt templates que são carregados dinamicamente de fontes externas (DB, S3) sem validação: grep -rn -iE '(load.*prompt|fetch.*prompt|prompt.*fromUrl)' ${repo_path}.",
+              "Verificar se há pinning de versão de libraries de ML (transformers, langchain) em lockfile (cross-ref DS-004)."
+            ],
+            "pass_criteria": "Modelos têm versão pinada (API remota) ou revision/commit hash (modelos locais). Dataset de fine-tuning documentado. Prompt templates versionados no repo, não carregados dinamicamente de fontes externas não confiáveis.",
+            "fail_criteria": "Modelos referenciados sem versão (gpt-4 em vez de gpt-4-0613). HuggingFace sem revision. Download de weights de URL arbitrária. Prompt templates carregados de DB/S3 sem validação.",
+            "false_positive_guidance": "Usar 'latest' em API providers comerciais pode ser aceitável com justificativa (SLA do provider), mas deve ser documentado. Modelos bleeding-edge em dev/research são aceitáveis se não fazem parte do caminho principal de execução auditado.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
+          },
+          "remediation": "Pinar versão de modelos API (gpt-4-0613, claude-opus-4-6, etc.). Fixar revision em from_pretrained(). Validar checksum de modelos baixados. Documentar lineage de fine-tuning datasets. Versionar prompt templates no repo (git). Se prompts precisam ser dinâmicos, validar schema e assinatura."
+        },
+        {
+          "check_id": "AI-007",
+          "name": "Consumo não limitado (token budget / DoS wallet)",
+          "severity_if_fail": "HIGH",
+          "owasp_refs": [
+            "LLM10:2025",
+            "CWE-400",
+            "CWE-770"
+          ],
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Verificar se há max_tokens / max_output_tokens / max_new_tokens definido em cada call: grep -rn -iE '(max_tokens|max_output_tokens|max_new_tokens|maxOutputTokens)' ${repo_path}. Ausência em calls encontradas = fail.",
+              "Verificar limite de tamanho de input: grep -rn -iE '(max.*input.*length|truncat|token.*count|tiktoken)' ${repo_path}.",
+              "Verificar rate limiting específico para LLM calls (per user, per API key): grep -rn -iE '(llm.*rate|ai.*rate|openai.*limit|quota.*user)' ${repo_path} (cross-ref AP-001).",
+              "Verificar se há cost tracking / budget por usuário ou tenant: grep -rn -iE '(cost.*track|budget|usage.*limit|token.*usage|spend)' ${repo_path}.",
+              "Verificar timeout em LLM calls: grep -rn -iE '(timeout|ClientTimeout|request_timeout)' nos clients de LLM.",
+              "Verificar se loops de agentes têm max_iterations / max_steps: grep -rn -iE '(max_iterations|max_steps|max.*depth|recursion.*limit)' ${repo_path}.",
+              "Verificar se há circuit breaker para calls ao LLM: grep -rn -iE '(circuit.*break|polly|opossum|resilience).*llm' ${repo_path}."
+            ],
+            "pass_criteria": "max_tokens definido em todas as calls. Input com limite de tamanho. Rate limit per user. Cost tracking implementado. Agentes com max_iterations. Timeout configurado.",
+            "fail_criteria": "Calls LLM sem max_tokens. Input aceito sem limite (context window abuse). Sem rate limit per user (atacante pode drenar budget). Loops de agente sem max_steps. Sem timeout.",
+            "false_positive_guidance": "Wrappers centrais podem aplicar caps fora do callsite individual; verificar builders/shared clients antes de concluir fail. Em dev/research pode ser aceitável omitir caps. Modelos locais têm custo de compute, não financeiro, mas ainda precisam de limites para evitar DoS.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
+          },
+          "remediation": "Sempre definir max_tokens / max_output_tokens. Truncar input ao limite de context window - max_tokens. Rate limit per user/tenant/API key. Implementar cost tracking e alertas quando spend excede threshold. Agentes: max_iterations (ex: 10). Timeout de 30-60s em calls. Circuit breaker para degradar graciosamente quando LLM provider falha."
+        }
+      ]
+    },
+    "business_logic": {
+      "task_ref": "SEC-026",
+      "domain": "business_logic",
+      "title": "Lógica de Negócio e Anti-Automação",
+      "priority": "high",
+      "input_requirements": {
+        "required": [
+          "repo_path"
+        ],
+        "optional": [
+          "endpoint_base_url",
+          "endpoints_inventory_path",
+          "tool_capabilities_path"
+        ]
+      },
+      "contextual_note": "Lógica de negócio é inerentemente específica ao domínio. Checks neste playbook são heurísticos, devem emitir confidence no máximo medium e precisam estar ancorados em evidência file:line e invariantes explícitos do fluxo. Se a aplicação não tem fluxos financeiros, workflows multi-step ou pontos de acumulação, vários checks serão not_applicable — documentar com justificativa. Quando reports/phase1/tool-capabilities.json estiver disponível, usá-lo para decidir quais confirmações por ferramenta são realmente executáveis no ambiente local; ausência do artefato reduz apenas a profundidade de confirmação, nunca a completude estática.",
+      "checks": [
+        {
+          "check_id": "BL-001",
+          "name": "Bypass de workflow multi-step",
+          "severity_if_fail": "HIGH",
+          "owasp_refs": [
+            "A04:2021",
+            "API6:2023",
+            "CWE-840",
+            "CWE-841"
+          ],
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Identificar fluxos multi-step no código: checkout, onboarding, KYC, password reset, email change, aprovação em cascata.",
+              "Buscar por state machines ou status enum: grep -rn --include='*.{js,ts,py,go,java,php,rb}' -iE '(status.*enum|state.*machine|OrderStatus|CheckoutStatus|KycStatus|ApprovalState|workflow.*state)' ${repo_path}",
+              "Para cada fluxo: verificar se cada step valida que o step anterior foi completado. Ex: endpoint /checkout/confirm deve verificar que /checkout/payment foi executado.",
+              "Buscar por endpoints que modificam state sem checar pré-condições: grep -rn -iE '(update.*status|set.*state|\\.status\\s*=)' ${repo_path} e verificar se há validação de transição válida.",
+              "Verificar se há server-side state machine (XState, Temporal, etc.) ou se state é apenas client-side (grave).",
+              "Verificar se há possibilidade de pular steps: endpoint de 'finalizar' acessível sem passar por 'validar' e 'pagar'.",
+              "Se endpoint_base_url disponível: testar acesso direto ao step final de um workflow conhecido sem executar os anteriores."
+            ],
+            "pass_criteria": "O código mostra que cada step de workflow valida pré-condições (steps anteriores completados). State machine ou validação de transição é server-side.",
+            "fail_criteria": "Há evidência no código de step final ou mutação de status sem validação de pré-condições/transição. State crítico parece existir apenas no client.",
+            "false_positive_guidance": "Workflows informativos ou sem efeito colateral crítico podem não precisar de validação rigorosa. Helpers ou state machines centralizadas podem esconder a checagem fora do handler local; nesses casos, usar confidence=medium.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
+          },
+          "remediation": "Implementar state machine server-side com transições explícitas. Cada endpoint de step valida status atual antes de permitir ação. Rejeitar transições inválidas (ex: de 'pending' direto para 'completed' sem passar por 'paid'). Considerar Temporal/XState para fluxos complexos. Log de audit para mudanças de state (cross-ref LM-002)."
+        },
+        {
+          "check_id": "BL-002",
+          "name": "Anti-automação ausente em fluxos críticos",
+          "severity_if_fail": "HIGH",
+          "owasp_refs": [
+            "A04:2021",
+            "API6:2023",
+            "CWE-799"
+          ],
+          "agent_instructions": {
+            "strategy": "hybrid",
+            "steps": [
+              "Identificar fluxos críticos abusáveis por bots: cadastro, criação de review/avaliação, aplicação de cupom/voucher, compra de ingresso/produto limitado, convite referral, votação, envio de mensagem.",
+              "Para cada um: verificar presença de anti-automação: CAPTCHA, proof-of-work, rate limit agressivo per user, cooldown, device fingerprint, behavioral analysis.",
+              "grep -rn -iE '(captcha|recaptcha|hcaptcha|turnstile|proof.*work|honeypot|device.*fingerprint|rate.*limit|cooldown|throttle)' ${repo_path}",
+              "Verificar se rate limit em fluxos críticos é mais restritivo que em endpoints normais (cross-ref AP-001).",
+              "Verificar se há velocity checks (ex: máximo 3 cupons por usuário por dia): grep -rn -iE '(velocity|daily.*limit|per.*day|per.*hour|count.*window)' ${repo_path}.",
+              "Verificar se há detecção de comportamento automatizado (user-agent, headless browser, timing de interações).",
+              "Se endpoint_base_url disponível: testar 20 cadastros em sequência e verificar se há bloqueio/CAPTCHA após N."
+            ],
+            "pass_criteria": "O código/config local mostra CAPTCHA ou equivalente, velocity checks per user e/ou rate limit mais restritivo em fluxos abusáveis. Quando endpoint_base_url existe, a sonda runtime pode confirmar bloqueio após N ações.",
+            "fail_criteria": "O código/config local não revela qualquer anti-automação relevante em fluxos críticos abusáveis. Se a proteção puder existir apenas no edge externo, usar partial com confidence=low.",
+            "false_positive_guidance": "Aplicações B2B internas ou com whitelist de IPs podem dispensar CAPTCHA. Bot protection no edge (Cloudflare Turnstile/WAF) pode existir fora do repo; sem evidência local ou endpoint, preferir partial/low em vez de fail categórico.",
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
+          },
+          "remediation": "Implementar CAPTCHA (hCaptcha, Turnstile, reCAPTCHA v3) em endpoints críticos. Velocity checks per user (máximo N ações por janela). Device fingerprinting (FingerprintJS). Considerar proof-of-work para fluxos muito abusados. Monitorar comportamento anômalo e bloquear proativamente."
+        },
+        {
+          "check_id": "BL-003",
+          "name": "Race conditions (TOCTOU) em operações sensíveis",
+          "severity_if_fail": "CRITICAL",
+          "owasp_refs": [
+            "A04:2021",
+            "CWE-362",
+            "CWE-367",
+            "CWE-366"
+          ],
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Identificar operações financeiras/críticas: pagamento, transferência, saque, débito/crédito de saldo, aplicação de cupom, consumo de crédito, mudança de permissão.",
+              "grep -rn --include='*.{js,ts,py,go,java,php,rb}' -iE '(balance|saldo|credit|debit|withdraw|transfer|deduct|charge|wallet)' ${repo_path}",
+              "Para cada operação: verificar se há transação de banco de dados envolvendo SELECT + UPDATE: grep -rn -B3 -A10 'UPDATE.*balance\\|balance.*=.*balance' ${repo_path}",
+              "Verificar se há lock pessimista (SELECT ... FOR UPDATE) ou otimista (version field, CAS).",
+              "Buscar por padrões perigosos: read-modify-write sem transação. Ex: balance = getBalance(user); newBalance = balance - amount; setBalance(user, newBalance).",
+              "Verificar se há uso de transação explícita: BEGIN/COMMIT, db.transaction(), Sequelize transaction, SQLAlchemy session.commit() com context.",
+              "Verificar se operações idempotentes têm chave de idempotência (cross-ref AP-007).",
+              "Verificar se endpoints de cupom/voucher marcam como usado antes de aplicar benefício (ordem crítica)."
+            ],
+            "pass_criteria": "O código mostra transação + lock (FOR UPDATE, versioning ou atomic update) em operações de saldo/crédito. Idempotência aparece em operações financeiras. Cupom é marcado como usado dentro da mesma transação lógica.",
+            "fail_criteria": "Há evidência no código de read-modify-write de saldo sem transação/atomicidade, cupom validado antes mas marcado como usado depois, ou ausência de lock/versioning em operação concorrente relevante.",
+            "false_positive_guidance": "Databases com isolation forte, atomic updates encapsulados em repository ou event sourcing bem implementado podem mitigar TOCTOU sem aparecer no handler local. Nesses casos, rastrear a camada de persistência antes de concluir fail.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
+          },
+          "remediation": "Envolver operações críticas em transação explícita. Usar SELECT ... FOR UPDATE para lock pessimista OU version field para lock otimista. Atomic updates quando possível (UPDATE balance = balance - X WHERE balance >= X). Idempotency keys para retry seguro. Marcar cupom/voucher como usado na mesma transação que aplica o benefício."
+        },
+        {
+          "check_id": "BL-004",
+          "name": "Abuso de fluxo de negócio permitido",
+          "severity_if_fail": "MEDIUM",
+          "owasp_refs": [
+            "API6:2023",
+            "CWE-840"
+          ],
+          "agent_instructions": {
+            "strategy": "static_analysis",
+            "steps": [
+              "Identificar fluxos que, embora legítimos individualmente, podem ser explorados em escala: compra de produtos com desconto para revenda, scraping de catálogo, enumeração de features premium, exfiltração de dados via API pública com paginação agressiva.",
+              "Buscar por endpoints de busca/listagem sem limite agressivo: grep -rn -iE '(search|list|browse|catalog)' nos routes.",
+              "Verificar se há limites por usuário em fluxos de alto valor: máximo de compras de produto limitado, máximo de aplicações de cupom, máximo de reviews.",
+              "Verificar se há detecção de padrões suspeitos: mesmo IP com múltiplas contas, múltiplos cupons com mesmo CPF, compras em velocidade não-humana.",
+              "Verificar se há soft controls: approval manual para ações de alto valor, revisão humana.",
+              "Cross-ref com AP-006 (paginação) e BL-002 (anti-automação).",
+              "Analisar endpoints que expõem dados agregados sem anonimização (vazamento por inferência)."
+            ],
+            "pass_criteria": "O código/config local mostra limits per user/per time window, detecção de padrões suspeitos ou soft controls para fluxos de alto valor. Dados agregados sensíveis aparecem anonimizados.",
+            "fail_criteria": "Há evidência no código de fluxos monetários ou de alto valor escaláveis sem limits relevantes, scraping facilitado ou ausência total de controles de abuso em fluxo material para o negócio.",
+            "false_positive_guidance": "Nem todo fluxo precisa de proteção — avaliar contra o modelo de ameaça do negócio. Aplicação puramente informacional tem menor risco. Se os controles forem operacionais/manual review fora do repo, usar partial com confidence=low.",
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
+          },
+          "remediation": "Definir limits por usuário para fluxos de alto valor (N compras de produto limitado, M cupons por mês). Implementar detecção de múltiplas contas (mesmo device, mesmo IP, mesmo CPF). Soft-approval para ações de alto valor. Rate limit mais agressivo em endpoints de busca/catálogo. Considerar impact analysis no threat model."
         }
       ]
     }

@@ -1,21 +1,43 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "esaa-core"
-version = "0.4.0"
+dynamic = ["version"]
 description = "ESAA deterministic orchestrator core"
 readme = "readme.md"
 requires-python = ">=3.11"
+license = "MIT"
+authors = [
+  { name = "ESAA Contributors" },
+]
 dependencies = [
   "PyYAML>=6.0",
   "jsonschema>=4.22.0",
 ]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Build Tools",
+]
+
+[project.urls]
+Homepage = "https://github.com/elzobrito/ESAA---Event-Sourcing-Agent-Architecture"
 
 [project.optional-dependencies]
 dev = [
   "pytest>=8.2.0",
+  "build>=1.2.0",
+  "twine>=5.1.0",
+  "ruff>=0.4.0",
+  "black>=24.0",
+  "mypy>=1.10",
 ]
 
 [project.scripts]
@@ -24,5 +46,31 @@ esaa = "esaa.cli:main"
 [tool.setuptools]
 package-dir = {"" = "src"}
 
+# QUA-02: fonte unica de versao - src/esaa/constants.py::PACKAGE_VERSION
+[tool.setuptools.dynamic]
+version = {attr = "esaa.constants.PACKAGE_VERSION"}
+
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+esaa = ["templates/*", "workspace/*"]
+
+# QUA-01: formatacao e lint - escopo adotado gradualmente (ver docs/spec/G01-hygiene-tooling-ci.md)
+[tool.black]
+line-length = 110
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501"]  # comprimento de linha e responsabilidade do black
+
+# QUA-01: mypy pragmatico (job nao-bloqueante no CI inicialmente)
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+check_untyped_defs = false

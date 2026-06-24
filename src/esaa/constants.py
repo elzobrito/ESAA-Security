@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-SCHEMA_VERSION = "0.4.0"
+SCHEMA_VERSION = "0.4.1"
 ESAA_VERSION = "0.4.x"
+PACKAGE_VERSION = "0.5.0b9"  # QUA-02: fonte unica de versao; pyproject usa [tool.setuptools.dynamic]
 
 ROADMAP_DIR = ".roadmap"
 EVENT_STORE_PATH = ".roadmap/activity.jsonl"
@@ -23,6 +24,8 @@ CANONICAL_ACTIONS = {
     "issue.report",
     "hotfix.create",
     "issue.resolve",
+    "runner.metrics",
+    "chain.anchor",
     "output.rejected",
     "orchestrator.file.write",
     "orchestrator.view.mutate",
@@ -35,4 +38,3 @@ RUN_STATUS = {"initialized", "running", "success", "failed", "halted"}
 VERIFY_STATUS = {"unknown", "ok", "mismatch", "corrupted"}
 TASK_STATUS = {"todo", "in_progress", "review", "done"}
 TASK_KINDS = {"spec", "impl", "qa"}
-
