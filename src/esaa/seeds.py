@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -190,17 +191,25 @@ def load_plugin_seeds(root: Path) -> dict[str, Any] | None:
 
             seen.add(tid)
 
-            tasks.append(
-                {
-                    "task_id": tid,
-                    "task_kind": task["task_kind"],
-                    "title": task["title"],
-                    "description": _enrich_audit_description(task),
-                    "depends_on": list(task.get("depends_on", [])),
-                    "targets": list(task.get("targets", [])),
-                    "outputs": task.get("outputs", {"files": []}),
-                }
-            )
+            projected: dict[str, Any] = {
+                "task_id": tid,
+                "task_kind": task["task_kind"],
+                "title": task["title"],
+                "description": _enrich_audit_description(task),
+                "depends_on": list(task.get("depends_on", [])),
+                "targets": list(task.get("targets", [])),
+                "outputs": task.get("outputs", {"files": []}),
+            }
+            for field in (
+                "playbook_ref",
+                "checks_covered",
+                "execution_notes",
+                "parallel_group",
+                "owasp_mapping",
+            ):
+                if field in task:
+                    projected[field] = deepcopy(task[field])
+            tasks.append(projected)
 
     if not tasks:
 
@@ -210,19 +219,15 @@ def load_plugin_seeds(root: Path) -> dict[str, Any] | None:
 
 
 def find_planned_plugin_task(root: Path, task_id: str) -> dict[str, Any] | None:
-
-    seed = load_plugin_seeds(root)
-
-    if not seed:
-
-        return None
-
-    for task in seed["tasks"]:
-
-        if task["task_id"] == task_id:
-
-            return dict(task)
-
+    """Return the full planned task definition from roadmap plugin files."""
+    plugins = sorted((root / ".roadmap").glob("roadmap.*.json"))
+    for plugin in plugins:
+        if plugin.name in {"roadmap.json", "roadmap.schema.json"} or plugin.name.endswith(".template.json"):
+            continue
+        raw = json.loads(plugin.read_text(encoding="utf-8"))
+        for task in raw.get("tasks", []):
+            if task.get("task_id") == task_id:
+                return dict(task)
     return None
 
 

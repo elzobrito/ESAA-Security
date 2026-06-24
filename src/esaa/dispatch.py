@@ -183,6 +183,10 @@ def build_minimal_context(
         "required_verification",
         "baseline_id",
         "boundary_grant",
+        "playbook_ref",
+        "checks_covered",
+        "execution_notes",
+        "parallel_group",
     ):
         if optional in task:
             task_ctx[optional] = task[optional]

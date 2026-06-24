@@ -15,6 +15,7 @@ from .runtime_policy import (
     is_in_cooldown,
     parse_duration,
 )
+from .security_audit import enrich_dispatch_context
 from .seeds import (
     all_tasks_done,
     build_dispatch_context,
@@ -206,8 +207,16 @@ class ExecutionMixin:
 
             last_signature = signature
 
+            tool_capabilities = self._load_security_tool_capabilities()
             contexts = [
-                (task, build_dispatch_context(effective_roadmap, task, contract, schema=schema))
+                (
+                    task,
+                    enrich_dispatch_context(
+                        self.root,
+                        build_dispatch_context(effective_roadmap, task, contract, schema=schema),
+                        tool_capabilities,
+                    ),
+                )
                 for task in runnable_wave
             ]
 

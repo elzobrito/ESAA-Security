@@ -9,10 +9,178 @@ from jsonschema import Draft202012Validator, ValidationError
 
 from .errors import ESAAError
 from .reject_codes import PRECISION_POLICY_VIOLATION
+from .seeds import find_planned_plugin_task
 
 _STRONG_EVIDENCE_TYPES = frozenset({"code_snippet", "tool_output", "runtime_probe"})
 _FAIL_STATUSES = frozenset({"fail", "error"})
 _SEC_RESULT_PATH_RE = re.compile(r"^reports/phase2/results/SEC-\d{3}\.json$")
+_SEC_TASK_ID_RE = re.compile(r"^SEC-\d{3}$")
+
+_PRECISION_DISPATCH_RULES = (
+    "fallback_applied=true must never coexist with status=fail or error.",
+    "confidence=high on fail requires evidence_types containing code_snippet, tool_output, or runtime_probe.",
+    "When endpoint_base_url is absent, hybrid checks complete only the static portion; runtime portions use not_applicable.",
+    "When optional tools are unavailable, degrade to static_analysis or partial; never fail solely because tooling is missing.",
+    "Populate evidence.fallback_applied and evidence.fallback_reason whenever tooling or runtime confirmation was skipped.",
+    "SEC-030 must consolidate multi-source evidence for the same check/root cause into one finding_id.",
+)
+
+
+def _security_audit_workspace(root: Path) -> bool:
+    return (root / ".roadmap" / "playbooks.security.json").is_file()
+
+
+def _load_security_playbooks(root: Path) -> dict[str, Any] | None:
+    path = root / ".roadmap" / "playbooks.security.json"
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _tooling_decision_summary(tool_capabilities: dict[str, Any] | None) -> dict[str, Any]:
+    if not tool_capabilities:
+        return {
+            "artifact": "reports/phase1/tool-capabilities.json",
+            "artifact_present": False,
+            "decision": "Assume shell-only static analysis; do not invoke optional scanners unless already verified locally.",
+        }
+
+    optional = tool_capabilities.get("optional_tools") or []
+    available = [item["name"] for item in optional if item.get("status") == "available"]
+    unavailable = [item["name"] for item in optional if item.get("status") == "unavailable"]
+    return {
+        "artifact": "reports/phase1/tool-capabilities.json",
+        "artifact_present": True,
+        "available_tools": available,
+        "unavailable_tools": unavailable,
+        "decision": (
+            "Use optional tools only when status=available in the artifact; "
+            "otherwise apply the playbook fallback_mode without failing the check."
+        ),
+    }
+
+
+def _check_dispatch_hints(check: dict[str, Any]) -> dict[str, Any]:
+    instructions = check.get("agent_instructions", {})
+    hint: dict[str, Any] = {
+        "check_id": check.get("check_id"),
+        "strategy": instructions.get("strategy"),
+        "severity_if_fail": check.get("severity_if_fail"),
+    }
+    tooling = instructions.get("tooling")
+    if isinstance(tooling, dict):
+        hint["tooling"] = {
+            "preferred_tools": tooling.get("preferred_tools", []),
+            "fallback_mode": tooling.get("fallback_mode"),
+            "capability_requirement": tooling.get("capability_requirement"),
+        }
+    return hint
+
+
+def _checks_for_task(task: dict[str, Any], playbooks: dict[str, Any]) -> list[dict[str, Any]]:
+    playbook_ref = task.get("playbook_ref")
+    if not playbook_ref:
+        return []
+
+    playbook = playbooks.get("playbooks", {}).get(playbook_ref)
+    if not isinstance(playbook, dict):
+        return []
+
+    covered = {str(item) for item in task.get("checks_covered", [])}
+    hints: list[dict[str, Any]] = []
+    for check in playbook.get("checks", []):
+        check_id = str(check.get("check_id", ""))
+        if covered and check_id not in covered:
+            continue
+        hints.append(_check_dispatch_hints(check))
+    return hints
+
+
+def build_precision_dispatch_guidance(
+    root: Path,
+    task: dict[str, Any],
+    expected_action: str,
+    tool_capabilities: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    if not _security_audit_workspace(root):
+        return None
+
+    task_id = str(task.get("task_id", ""))
+    if not _SEC_TASK_ID_RE.match(task_id):
+        return None
+
+    planned = find_planned_plugin_task(root, task_id)
+    if planned:
+        task = {**planned, **task}
+
+    guidance: dict[str, Any] = {
+        "precision_policy": {
+            "priority": "precision_first",
+            "enforcement": "orchestrator_rejects_invalid_sec_results_at_submit",
+            "reject_code": PRECISION_POLICY_VIOLATION,
+            "rules": list(_PRECISION_DISPATCH_RULES),
+        },
+        "tooling_decision": _tooling_decision_summary(tool_capabilities),
+    }
+
+    execution_notes = task.get("execution_notes")
+    if isinstance(execution_notes, str) and execution_notes.strip():
+        guidance["execution_notes"] = execution_notes.strip()
+
+    if task_id == "SEC-001" and expected_action == "complete":
+        guidance["required_artifacts"] = [
+            "reports/phase1/tech-stack-inventory.md",
+            "reports/phase1/tool-capabilities.json",
+        ]
+        guidance["artifact_schema"] = ".roadmap/tool-capabilities.schema.json"
+
+    if task_id == "SEC-030" and expected_action == "complete":
+        guidance["consolidation"] = {
+            "goal": "One finding_id per logical vulnerability even when confirmed by code, tooling, and runtime.",
+            "required_field": "evidence_sources",
+            "dedup_key": ["source_check", "file", "line"],
+        }
+
+    if task_id == "SEC-031" and expected_action == "complete":
+        guidance["classification"] = {
+            "reclassify_low_confidence_to_info": True,
+            "do_not_promote_medium_without_strong_corroboration": True,
+        }
+
+    if expected_action == "complete" and task.get("task_kind") == "impl":
+        playbooks = _load_security_playbooks(root)
+        if playbooks:
+            checks = _checks_for_task(task, playbooks)
+            if checks:
+                guidance["applicable_checks"] = checks
+
+    if expected_action == "claim" and task.get("task_kind") == "impl":
+        guidance["prepare_for_complete"] = (
+            "Before completing, read reports/phase1/tool-capabilities.json when available and "
+            "apply playbook fallback_mode deterministically for each check."
+        )
+
+    return guidance
+
+
+def enrich_dispatch_context(
+    root: Path,
+    context: dict[str, Any],
+    tool_capabilities: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    task = context.get("task")
+    if not isinstance(task, dict):
+        return context
+
+    guidance = build_precision_dispatch_guidance(
+        root,
+        task,
+        str(context.get("expected_action", "none")),
+        tool_capabilities,
+    )
+    if guidance:
+        return {**context, "precision_guidance": guidance}
+    return context
 
 
 def _load_tool_capabilities_schema(root: Path) -> dict[str, Any]:

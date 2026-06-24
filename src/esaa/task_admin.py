@@ -29,6 +29,7 @@ from .store import (
     save_roadmap,
 )
 from .utils import ensure_parent
+from .security_audit import enrich_dispatch_context
 from .validator import validate_boundary_grant
 
 
@@ -274,7 +275,7 @@ class TaskAdminMixin:
         if tool_capabilities:
             context["tool_capabilities"] = tool_capabilities
 
-        return context
+        return enrich_dispatch_context(self.root, context, tool_capabilities)
 
     def claim_task(
         self, task_id: str, actor: str, notes: str | None = None, dry_run: bool = False
