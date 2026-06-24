@@ -117,6 +117,7 @@ ESAA-Security currently covers 17 security domains derived from the PARCER Secur
 │
 ├── agents_swarm.yaml                           # Agent registry and role resolution
 ├── playbooks.security.json                     # Agent-executable playbooks (108 checks, 17 domains, static-first)
+├── tool-capabilities.schema.json               # JSON Schema: validates reports/phase1/tool-capabilities.json
 ├── report-template.security.json               # Deterministic scoring and final report projection contract
 │
 ├── PARCER_PROFILE.agent-spec.yaml              # Profile: reconnaissance agent
@@ -464,6 +465,30 @@ The roadmap is intentionally **static-first**. Optional tools improve corroborat
 
 When optional tools are absent, the audit remains valid. The only effect is reduced confirmation depth for the checks that declared a `tooling` block.
 
+### Precision Enforcement
+
+The orchestrator enforces precision policy at submit time via `src/esaa/security_audit.py`. Invalid SEC results are rejected with `PRECISION_POLICY_VIOLATION` before they reach the event store.
+
+| Rule | Behavior |
+|---|---|
+| Fallback + fail | `evidence.fallback_applied=true` cannot coexist with `status=fail` or `error` |
+| High confidence on fail | Requires `evidence_types` containing `code_snippet`, `tool_output`, or `runtime_probe` |
+| Missing endpoint | Hybrid checks complete only the static portion; runtime portions use `not_applicable` |
+| Missing optional tools | Degrade to `static_analysis` or `partial`; never fail solely because tooling is absent |
+| Skipped confirmation | Populate `evidence.fallback_applied` and `evidence.fallback_reason` when tooling or runtime was skipped |
+| SEC-030 consolidation | One `finding_id` per logical vulnerability, with multi-source `evidence_sources` |
+
+`tool-capabilities.json` is validated against `.roadmap/tool-capabilities.schema.json` when written during SEC-001.
+
+### Dispatch Context
+
+`python -m esaa --root . dispatch-context SEC-NNN` returns task context enriched with a `precision_guidance` block for SEC tasks:
+
+- `precision_policy` — enforcement rules and reject code
+- `tooling_decision` — summary from `reports/phase1/tool-capabilities.json` (available vs unavailable optional tools)
+- `applicable_checks` — per-check strategy and tooling hints for `impl` tasks on `complete`
+- Task-specific hints for SEC-001 (required artifacts), SEC-030 (consolidation), and SEC-031 (classification)
+
 ---
 
 ## Security Score
@@ -603,6 +628,17 @@ The agent remains responsible for the domain work: it reads the versioned contra
    cat reports/phase4/best-practices.md
    ```
 
+### Development
+
+Install the runtime in editable mode with dev dependencies, then run the test suite:
+
+```bash
+pip install -e ".[dev]"
+python -m pytest tests/ -q
+```
+
+The security contract suite covers playbook precision behavior, runtime enforcement (`PRECISION_POLICY_VIOLATION`), dispatch-context `precision_guidance`, and boundary contracts. **163 tests pass** on a clean checkout (1 skipped on Windows when symlink fixtures are unavailable).
+
 ---
 
 ## Artifacts
@@ -610,9 +646,11 @@ The agent remains responsible for the domain work: it reads the versioned contra
 | Artifact | Schema | Description |
 |---|---|---|
 | `.roadmap/roadmap.security.json` | ESAA v0.6.0 | Versioned audit roadmap — 27 tasks, 4 phases, static-first local-code execution contract with optional tooling orchestration |
-| `.roadmap/playbooks.security.json` | playbooks.security.v1 | 108 executable checks across 17 domains with agent instructions, confidence guidance, false-positive guidance, and optional tooling blocks |
+| `.roadmap/playbooks.security.json` | playbooks.security.v1.2.1 | 108 executable checks across 17 domains; 35 checks declare optional `tooling` blocks with deterministic fallback |
+| `.roadmap/tool-capabilities.schema.json` | JSON Schema | Validates `reports/phase1/tool-capabilities.json` produced in SEC-001 |
 | `.roadmap/roadmap.json` | projection view | Runtime read-model projected from the event store and consumed by the orchestrator |
 | `.roadmap/report-template.security.json` | report projection contract | Deterministic scoring and final report projection template |
+| `src/esaa/security_audit.py` | runtime policy | Precision enforcement, `tool-capabilities` validation, and `precision_guidance` for dispatch-context |
 | `src/esaa/*` | esaa-core runtime | Modern ESAA core runtime surface ported into ESAA-Security, including deterministic CLI, runner metrics, input commands, plugin/roadmap operations, and edit-based file updates |
 | `PARCER_v1.6.0-security-audit.yaml` | — | Source framework defining security domains, guardrails, and agent governance ([paper](https://arxiv.org/abs/2603.00856)) |
 
