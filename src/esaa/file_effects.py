@@ -29,6 +29,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .utils import assert_within_root
+
 STAGING_DIR = ".roadmap/staging"
 
 ARTIFACT_DIR = ".roadmap/artifacts/file-effects"
@@ -79,6 +81,7 @@ def commit_staged(root: Path, staged: list[dict[str, Any]]) -> None:
     """Apply staged files atomically to final paths."""
     for entry in staged:
         final = Path(entry["final_abs_path"]) if entry.get("final_abs_path") else root / entry["final_path"]
+        assert_within_root(root, final)
         staged_p = Path(entry["staged_path"])
         final.parent.mkdir(parents=True, exist_ok=True)
         os.replace(staged_p, final)

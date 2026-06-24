@@ -25,7 +25,8 @@ from .store import (
     next_event_seq,
     parse_event_store,
 )
-from .utils import normalize_rel_path
+from .constants import MAX_INBOX_FILE_BYTES
+from .utils import assert_safe_actor, normalize_rel_path
 from .validator import (
     validate_agent_output,
     validate_file_update_resource_limits,
@@ -91,6 +92,7 @@ class SubmissionMixin:
         return result
 
     def submit(self, agent_output: dict[str, Any], actor: str, dry_run: bool = False) -> dict[str, Any]:
+        assert_safe_actor(actor)
 
         events = parse_event_store(self.root)
 
@@ -330,6 +332,13 @@ class SubmissionMixin:
                 actor = "agent-external"
 
             try:
+                assert_safe_actor(actor)
+
+                if filepath.stat().st_size > MAX_INBOX_FILE_BYTES:
+                    raise ESAAError(
+                        "RESOURCE_LIMIT_EXCEEDED",
+                        f"inbox file {filepath.name} exceeds max size of {MAX_INBOX_FILE_BYTES} bytes",
+                    )
 
                 agent_output = json.loads(filepath.read_text(encoding="utf-8"))
 

@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any
 
+from .constants import MAX_STEPS
 from .errors import ESAAError
 from .events import make_event
 from .file_effects import commit_staged, discard_staged
@@ -86,6 +87,10 @@ class ExecutionMixin:
 
             raise ESAAError("INVALID_ARGUMENT", "steps must be >= 1")
 
+        if steps is not None and steps > MAX_STEPS:
+
+            raise ESAAError("INVALID_ARGUMENT", f"steps must be <= {MAX_STEPS}")
+
         if parallel < 1:
 
             raise ESAAError("INVALID_ARGUMENT", "parallel must be >= 1")
@@ -123,6 +128,10 @@ class ExecutionMixin:
         while steps is None or iteration < steps:
 
             iteration += 1
+
+            if iteration > MAX_STEPS:
+
+                raise ESAAError("INVALID_ARGUMENT", f"run exceeded max steps limit of {MAX_STEPS}")
 
             roadmap, _, _ = materialize(events + new_events)
             effective_tasks, _ = tasks_with_planned_plugins(self.root, roadmap["tasks"])
