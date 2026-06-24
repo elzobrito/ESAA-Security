@@ -7,6 +7,7 @@ from typing import Any
 from jsonschema import ValidationError, validate
 
 from .errors import ESAAError
+from .security_audit import validate_security_activity_event
 from .external_effects import task_accepts_external_path
 from .state_machine import REJECT_PRIOR_MISMATCH, allowed_actions_for
 from .utils import normalize_rel_path
@@ -216,6 +217,8 @@ def validate_agent_output(
         decision = event.get("decision")
         if decision not in {"approve", "request_changes"}:
             raise ESAAError("SCHEMA_INVALID", f"invalid review decision: {decision}")
+
+    validate_security_activity_event(event)
 
     updates = list(output.get("file_updates", []))
     _validate_boundaries(updates, contract, task)

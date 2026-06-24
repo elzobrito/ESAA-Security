@@ -18,6 +18,7 @@ from .file_effects import (
 from .projector import materialize
 from .provenance import resolve_runner
 from .runtime_policy import is_blocked_by_max_attempts
+from .security_audit import validate_security_file_updates
 from .seeds import all_tasks_done
 from .store import (
     load_agent_contract,
@@ -152,6 +153,7 @@ class SubmissionMixin:
             file_updates = _normalize_file_updates(self.root, file_updates)
             validate_file_update_resource_limits(file_updates, policy)
             file_updates = resolve_external_file_updates(self.root, task, file_updates)
+            validate_security_file_updates(self.root, file_updates)
             # FIX-1807: review_authorization=qa_role -> resolve role e injeta _reviewer_role no payload
             if validated_event["action"] == "review":
                 from .runtime_policy import resolve_role, review_authorization_mode
@@ -389,6 +391,7 @@ class SubmissionMixin:
         file_updates = _normalize_file_updates(self.root, file_updates)
         validate_file_update_resource_limits(file_updates, self._policy())
         file_updates = resolve_external_file_updates(self.root, task, file_updates)
+        validate_security_file_updates(self.root, file_updates)
         known_roadmap, _, _ = materialize(events + new_events)
         known_task_ids = {item["task_id"] for item in known_roadmap.get("tasks", [])}
         candidate_events: list[dict[str, Any]] = []

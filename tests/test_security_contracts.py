@@ -29,7 +29,7 @@ def test_security_counts_are_consistent(repo_root: Path) -> None:
     assert len(roadmap["tasks"]) == 27
     assert len(impl_tasks) == 17
     assert roadmap["meta"]["schema_version"] == "0.6.0"
-    assert playbooks["metadata"]["version"] == "1.2.0"
+    assert playbooks["metadata"]["version"] == "1.2.1"
     assert "108 executable checks across 27 tasks in 4 phases" in readme
     assert "17 security domains" in readme
 
@@ -74,7 +74,7 @@ def test_optional_tooling_contract_is_well_formed(repo_root: Path) -> None:
         assert tooling["evidence_requirements"]
         assert tooling["confidence_effect"]
 
-    assert checks_with_tooling >= 10
+    assert checks_with_tooling >= 30
 
 
 def test_tool_capabilities_schema_file_exists(repo_root: Path) -> None:

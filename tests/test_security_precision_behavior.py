@@ -154,6 +154,14 @@ def test_fallback_policies_declare_non_fail_degradation(
     assert expected_status in rule
 
 
+def test_tooling_coverage_meets_expanded_target(repo_root: Path) -> None:
+    playbooks = _load_json(repo_root / ".roadmap/playbooks.security.json")
+    tooling_count = sum(
+        1 for _, check in _all_checks(playbooks) if check["agent_instructions"].get("tooling")
+    )
+    assert tooling_count >= 30
+
+
 def test_checks_with_tooling_never_penalize_absence_as_fail(repo_root: Path) -> None:
     playbooks = _load_json(repo_root / ".roadmap/playbooks.security.json")
 

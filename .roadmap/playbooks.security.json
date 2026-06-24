@@ -2,9 +2,9 @@
   "$schema": "playbooks.security.v1",
   "metadata": {
     "name": "PARCER Security Playbooks",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "created_at": "2026-03-04T00:00:00Z",
-    "updated_at": "2026-06-23T00:00:00Z",
+    "updated_at": "2026-06-24T00:00:00Z",
     "roadmap_ref": "roadmap.security.json",
     "roadmap_version": "0.6.0",
     "target_executor": "claude-code-agent",
@@ -15,6 +15,14 @@
       "runtime_confirmation": "Checks com strategy=hybrid executam por padrão apenas a porção static_analysis sobre o código. A porção runtime (curl, HTTP probing) é estritamente opt-in e só é executada quando endpoint_base_url é fornecido pelo operador. A ausência de endpoint nunca deve ser tratada como falha."
     },
     "changelog": [
+      {
+        "version": "1.2.1",
+        "date": "2026-06-24",
+        "changes": [
+          "Tooling opcional expandido para 16 checks hybrid sem bloco e 7 checks static críticos (secrets, authz, deps).",
+          "Hybrid checks agora declaram runtime_confirmation_optional com fallback static-first explícito."
+        ]
+      },
       {
         "version": "1.2.0",
         "date": "2026-06-23",
@@ -328,7 +336,19 @@
             "pass_criteria": "Nenhuma chave secreta no código frontend. Apenas chaves públicas by-design (publishable keys) presentes.",
             "fail_criteria": "Chaves secretas, tokens de acesso ou credenciais de backend encontradas em código acessível ao browser.",
             "false_positive_guidance": "Confirmar se o match representa segredo real em código de produção. Placeholders, env vars, fixtures e exemplos documentais não devem ser tratados como fail conclusivo.",
-            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial.",
+            "tooling": {
+              "preferred_tools": [
+                "gitleaks"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "secrets_scanners",
+              "evidence_requirements": [
+                "tool_output",
+                "code_snippet"
+              ],
+              "confidence_effect": "Match corroborado por scanner local e snippet direto pode elevar confidence para high; ausência da ferramenta mantém a inspeção estática sem penalização."
+            }
           },
           "remediation": "Mover chamadas que requerem chaves secretas para o backend. Usar proxy endpoints. Chaves de frontend devem ser exclusivamente read-only e escopadas.",
           "context": "Código JavaScript enviado ao browser é completamente visível para qualquer usuário via DevTools. Chaves secretas expostas no frontend permitem que qualquer pessoa faça chamadas diretas às APIs contornando toda a lógica de negócio e rate limiting do backend. É diferente de chaves públicas (Stripe pk_, Firebase config) que são desenhadas para ficarem expostas."
@@ -348,7 +368,19 @@
             "pass_criteria": ".env não presente no repositório OU presente apenas como .env.example com placeholders. .gitignore inclui .env patterns.",
             "fail_criteria": "Arquivo .env com valores reais commitado. .gitignore não protege arquivos .env.",
             "false_positive_guidance": "Confirmar se o match representa segredo real em código de produção. Placeholders, env vars, fixtures e exemplos documentais não devem ser tratados como fail conclusivo.",
-            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial.",
+            "tooling": {
+              "preferred_tools": [
+                "gitleaks"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "secrets_scanners",
+              "evidence_requirements": [
+                "tool_output",
+                "code_snippet"
+              ],
+              "confidence_effect": "Match corroborado por scanner local e snippet direto pode elevar confidence para high; ausência da ferramenta mantém a inspeção estática sem penalização."
+            }
           },
           "remediation": "Adicionar .env* ao .gitignore. Remover do histórico git com git filter-branch ou BFG. Rotacionar credenciais expostas. Manter apenas .env.example com placeholders.",
           "context": "Arquivos .env contêm todas as credenciais de produção e são frequentemente commitados por acidente. Uma vez no histórico git, persistem mesmo após remoção do arquivo atual — o comando `git log --all -S 'senha'` pode recuperar o valor anos depois. Em repositórios públicos, bots escaneiam novos commits em segundos."
@@ -367,7 +399,19 @@
             ],
             "pass_criteria": "CORS configurado com whitelist de origens específicas. Wildcard não usado com credentials.",
             "fail_criteria": "Access-Control-Allow-Origin: * combinado com Access-Control-Allow-Credentials: true. Ou wildcard em endpoints autenticados.",
-            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente.",
+            "tooling": {
+              "preferred_tools": [
+                "curl"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "runtime_confirmation_optional",
+              "evidence_requirements": [
+                "code_snippet",
+                "runtime_probe"
+              ],
+              "confidence_effect": "Confirmação runtime opt-in via endpoint_base_url pode elevar confidence; ausência de endpoint mantém static_analysis sem penalização."
+            }
           },
           "remediation": "Configurar CORS com whitelist explícita de origens permitidas. Nunca combinar wildcard com credentials. Diferentes configs para ambientes dev/staging/prod.",
           "context": "CORS permissivo com credentials:true permite que sites maliciosos façam requisições autenticadas em nome do usuário logado, lendo dados privados e executando ações. O cenário mais perigoso: Access-Control-Allow-Origin: * combinado com Access-Control-Allow-Credentials: true permite que qualquer site leia responses de endpoints autenticados. Wildcard sem credentials é menos crítico mas ainda permite leitura de dados públicos."
@@ -407,7 +451,19 @@
             "pass_criteria": "Nenhuma credencial padrão em código de produção. Seeds/fixtures de dev claramente isolados de configs de produção.",
             "fail_criteria": "Credenciais padrão em configurações que podem alcançar produção. Banco de dados com passwords triviais em docker-compose sem override de produção.",
             "false_positive_guidance": "Confirmar se o match representa segredo real em código de produção. Placeholders, env vars, fixtures e exemplos documentais não devem ser tratados como fail conclusivo.",
-            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial.",
+            "tooling": {
+              "preferred_tools": [
+                "gitleaks"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "secrets_scanners",
+              "evidence_requirements": [
+                "tool_output",
+                "code_snippet"
+              ],
+              "confidence_effect": "Match corroborado por scanner local e snippet direto pode elevar confidence para high; ausência da ferramenta mantém a inspeção estática sem penalização."
+            }
           },
           "remediation": "Substituir todas as credenciais padrão por valores gerados. Exigir variáveis de ambiente para credenciais em todos os ambientes. Usar secret generation no deploy.",
           "context": "Credenciais padrão são testadas automaticamente por scanners e bots em segundos após exposição. Bancos de dados com POSTGRES_PASSWORD=postgres, serviços Redis sem senha, ou painéis admin com admin/admin são comprometidos rotineiramente. O risco é maior quando docker-compose.yml com credenciais fracas é usado diretamente em produção."
@@ -537,7 +593,20 @@
             "pass_criteria": "Todas as dependências correspondem a pacotes legítimos e bem estabelecidos.",
             "fail_criteria": "Qualquer dependência com nome suspeitamente similar a pacote popular mas de autor diferente.",
             "false_positive_guidance": "Confirmar se a dependência afetada pertence ao caminho executado ou imagem final. Dependências de dev, exemplos ou referências documentais exigem triagem antes de concluir fail.",
-            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial.",
+            "tooling": {
+              "preferred_tools": [
+                "trivy",
+                "osv-scanner"
+              ],
+              "fallback_mode": "partial_with_static_manifest_review",
+              "capability_requirement": "dependency_vulnerability_scanners",
+              "evidence_requirements": [
+                "tool_output",
+                "config_artifact"
+              ],
+              "confidence_effect": "Vulnerabilidade sobe de medium para high apenas quando a ferramenta aponta pacote e versão presentes no lockfile/manifests locais; ausência da ferramenta degrada para revisão estática sem penalização."
+            }
           },
           "remediation": "Remover pacotes suspeitos imediatamente. Auditar o que o pacote faz. Verificar se houve execução de postinstall scripts maliciosos.",
           "context": "Typosquatting é uma técnica de ataque onde pacotes com nomes similares a populares são publicados contendo código malicioso. Exemplos reais: 'lodash' vs 'lodahs', 'request' vs 'requets', 'event-stream' (comprometido em 2018 via maintainer transfer). Scripts de postinstall executam automaticamente na instalação e podem exfiltrar variáveis de ambiente, chaves SSH, e histórico de comandos."
@@ -642,7 +711,19 @@
             "pass_criteria": "Todas as senhas passam por hash com algoritmo seguro (bcrypt/argon2/scrypt) antes de armazenamento.",
             "fail_criteria": "Qualquer path de código onde senha é armazenada sem hash. Uso de MD5/SHA1/SHA256 sem salt para senhas.",
             "false_positive_guidance": "Verificar se o controle não está implementado em camada central, provider externo ou middleware herdado antes de concluir ausência real do controle.",
-            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial.",
+            "tooling": {
+              "preferred_tools": [
+                "semgrep"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "sast_pattern_scanners",
+              "evidence_requirements": [
+                "tool_output",
+                "code_snippet"
+              ],
+              "confidence_effect": "Confirmação por semgrep pode elevar confidence quando alinhada ao snippet; ausência da ferramenta mantém static_analysis sem penalização."
+            }
           },
           "remediation": "Implementar bcrypt (cost >= 12) ou argon2id para hash de senhas. Nunca usar MD5/SHA para passwords. Migrar senhas existentes em texto plano.",
           "context": "Senhas em texto plano são imediatamente utilizáveis por qualquer pessoa com acesso ao banco — desenvolvedor, backup vazado, SQL injection. Hashing garante que mesmo com acesso ao banco, o atacante não consegue as senhas originais (apenas pode tentar force brute offline, que é lento com algoritmos adequados como bcrypt)."
@@ -741,7 +822,19 @@
             "pass_criteria": "Rate limit em endpoint de login. Lockout após N tentativas falhas. Delay progressivo implementado.",
             "fail_criteria": "Nenhuma proteção contra brute force em login. Rate limit ausente em endpoints de autenticação.",
             "false_positive_guidance": "Verificar se o controle não está implementado em camada central, provider externo ou middleware herdado antes de concluir ausência real do controle.",
-            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente.",
+            "tooling": {
+              "preferred_tools": [
+                "curl"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "runtime_confirmation_optional",
+              "evidence_requirements": [
+                "code_snippet",
+                "runtime_probe"
+              ],
+              "confidence_effect": "Confirmação runtime opt-in via endpoint_base_url pode elevar confidence; ausência de endpoint mantém static_analysis sem penalização."
+            }
           },
           "remediation": "Implementar rate limit (ex: 5 tentativas/min por IP+username). Lockout progressivo após 5 falhas. CAPTCHA após 3 falhas. Notificar usuário de tentativas.",
           "context": "Sem proteção contra força bruta, atacante pode tentar milhares de senhas por minuto. Listas de senhas comuns (rockyou.txt: 14M senhas) combinadas com email de usuário permitem credential stuffing — tentativas com credenciais vazadas de outros sites. Rate limiting por IP+username é a defesa mais efetiva."
@@ -849,7 +942,19 @@
             "pass_criteria": "O código mostra controle de acesso consistente nas rotas que acessam dados sensíveis. Rotas públicas são intencionais e documentadas.",
             "fail_criteria": "Há evidência direta no código de rotas que manipulam dados sensíveis sem qualquer middleware/guard/policy de auth/authz. Rotas admin aparecem acessíveis sem autenticação.",
             "false_positive_guidance": "Frameworks com middleware global, base controller protegido ou policy layer centralizada podem não expor a checagem no arquivo da rota. Antes de marcar fail, procurar proteção herdada, decorators em classes-base ou configuração global do router.",
-            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial.",
+            "tooling": {
+              "preferred_tools": [
+                "semgrep"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "sast_pattern_scanners",
+              "evidence_requirements": [
+                "tool_output",
+                "code_snippet"
+              ],
+              "confidence_effect": "Confirmação por semgrep pode elevar confidence quando alinhada ao snippet; ausência da ferramenta mantém static_analysis sem penalização."
+            }
           },
           "remediation": "Aplicar middleware de auth por padrão (deny-by-default). Whitelist rotas públicas explicitamente. Documentar política de acesso por rota.",
           "context": "Controle de acesso ausente é a vulnerabilidade #1 do OWASP Top 10 (A01:2021). Endpoints sem middleware de autenticação são acessíveis por qualquer pessoa — incluindo usuários não autenticados, bots e atacantes. O padrão 'deny-by-default' (todas as rotas protegidas por padrão, exceções explícitas) é mais seguro que 'allow-by-default' (proteger rotas individualmente)."
@@ -869,7 +974,19 @@
             "pass_criteria": "Os endpoints observáveis no código que recebem IDs verificam ownership ou permissão do usuário autenticado sobre o recurso.",
             "fail_criteria": "Há evidência direta de endpoint que retorna/modifica recurso baseado apenas no ID fornecido sem verificar ownership, escopo organizacional ou policy equivalente.",
             "false_positive_guidance": "Scoping implícito via ORM/repository (ex: tenant_id injetado automaticamente, default scopes, row-level security) pode mitigar IDOR sem aparecer na query local. Se a proteção existir em camada indireta, usar partial ou confidence=medium em vez de fail conclusivo.",
-            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial."
+            "confidence_guidance": "Emitir confidence=high apenas quando o próprio código/config versionado prova o achado de forma direta. Em inferências estruturais, ausência de checagem visível ou matches amplos, usar medium; se o controle puder existir fora do repo, usar low ou partial.",
+            "tooling": {
+              "preferred_tools": [
+                "semgrep"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "sast_pattern_scanners",
+              "evidence_requirements": [
+                "tool_output",
+                "code_snippet"
+              ],
+              "confidence_effect": "Confirmação por semgrep pode elevar confidence quando alinhada ao snippet; ausência da ferramenta mantém static_analysis sem penalização."
+            }
           },
           "remediation": "Sempre filtrar queries por user_id/org_id do usuário autenticado. Implementar policy layer (ex: CASL, Pundit, Django Guardian). Usar UUIDs ao invés de IDs sequenciais.",
           "context": "IDOR (Insecure Direct Object Reference) permite que usuário A acesse recursos de usuário B simplesmente trocando o ID no request. É responsável por inúmeros vazamentos de dados — PayPal (2012), Facebook (2015), Uber (2016). IDs sequenciais (1, 2, 3) facilitam enumeração; UUIDs reduzem mas não eliminam o risco."
@@ -921,7 +1038,19 @@
             "pass_criteria": "Rotas admin protegidas por auth + role check. Admin em path não-óbvio ou rede segregada.",
             "fail_criteria": "Admin routes acessíveis sem autenticação. Admin em /admin sem proteção adicional.",
             "false_positive_guidance": "Verificar guards, middleware global, decorators, base controllers, policy layers e scoping implícito do ORM antes de concluir ausência de autorização efetiva.",
-            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente.",
+            "tooling": {
+              "preferred_tools": [
+                "curl"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "runtime_confirmation_optional",
+              "evidence_requirements": [
+                "code_snippet",
+                "runtime_probe"
+              ],
+              "confidence_effect": "Confirmação runtime opt-in via endpoint_base_url pode elevar confidence; ausência de endpoint mantém static_analysis sem penalização."
+            }
           },
           "remediation": "Proteger admin com auth + role admin. Mover para subdomain ou porta segregada. Implementar IP whitelist se possível. Adicionar MFA para admin.",
           "context": "Painéis admin em paths previsíveis (/admin, /dashboard) são alvos de scanning automático. Se a rota existe mas o middleware de autorização falhar por qualquer bug, acesso ao admin é exposto. Path imprevisível é defesa em profundidade (security through obscurity como camada adicional, não única)."
@@ -996,7 +1125,19 @@
             "pass_criteria": "Há evidência no código ou na config versionada de rate limit em endpoints públicos. Endpoints sensíveis (login, register, reset) têm limits mais restritivos ou a sonda runtime confirma 429.",
             "fail_criteria": "Nenhum rate limit é observável no código/config versionada e endpoints de auth aparecem sem proteção contra abuso. Se o controle puder existir apenas em gateway externo não versionado, usar partial com confidence=low.",
             "false_positive_guidance": "Rate limiting pode estar implementado em API gateway, CDN ou ingress externo ao repo. Sem evidência local nem endpoint para confirmar, evitar fail conclusivo e preferir partial com confidence=low.",
-            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente.",
+            "tooling": {
+              "preferred_tools": [
+                "curl"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "runtime_confirmation_optional",
+              "evidence_requirements": [
+                "code_snippet",
+                "runtime_probe"
+              ],
+              "confidence_effect": "Confirmação runtime opt-in via endpoint_base_url pode elevar confidence; ausência de endpoint mantém static_analysis sem penalização."
+            }
           },
           "remediation": "Implementar rate limiting por IP e por user. Endpoints de auth: 5-10 req/min. APIs gerais: 100-1000 req/min conforme caso de uso. Retornar 429 com Retry-After header.",
           "context": "Sem rate limiting, APIs estão vulneráveis a: brute force de credenciais, scraping massivo de dados, abuso de recursos computacionais (especialmente endpoints de IA/LLM), e negação de serviço acidental ou intencional. Endpoints de autenticação sem rate limit são o vetor principal de credential stuffing."
@@ -1035,7 +1176,19 @@
             ],
             "pass_criteria": "Mensagens genéricas em login/register/reset que não revelam existência de conta. Timing constante.",
             "fail_criteria": "Respostas diferentes que permitem determinar se email/username existe no sistema.",
-            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente.",
+            "tooling": {
+              "preferred_tools": [
+                "curl"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "runtime_confirmation_optional",
+              "evidence_requirements": [
+                "code_snippet",
+                "runtime_probe"
+              ],
+              "confidence_effect": "Confirmação runtime opt-in via endpoint_base_url pode elevar confidence; ausência de endpoint mantém static_analysis sem penalização."
+            }
           },
           "remediation": "Retornar mesma mensagem independente de existência: 'Se a conta existir, enviaremos um email'. Usar timing constante. Considerar CAPTCHA após N tentativas.",
           "context": "Enumeração de usuários permite que atacantes confirmem quais emails estão cadastrados, facilitando phishing direcionado e credential stuffing. Uma resposta diferente para 'email não existe' vs 'senha errada' vaza essa informação."
@@ -1631,7 +1784,19 @@
             "pass_criteria": "Todos os cookies sensíveis (session, auth) com httpOnly flag.",
             "fail_criteria": "Cookies de sessão ou auth sem httpOnly. Acessíveis via JavaScript.",
             "false_positive_guidance": "Verificar se cookies, CSRF e expiração são configurados em middleware ou provider compartilhado antes de concluir fail por ausência local em um arquivo isolado.",
-            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente.",
+            "tooling": {
+              "preferred_tools": [
+                "curl"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "runtime_confirmation_optional",
+              "evidence_requirements": [
+                "code_snippet",
+                "runtime_probe"
+              ],
+              "confidence_effect": "Confirmação runtime opt-in via endpoint_base_url pode elevar confidence; ausência de endpoint mantém static_analysis sem penalização."
+            }
           },
           "remediation": "Configurar httpOnly: true em todos os cookies de sessão e autenticação.",
           "context": "Cookies sem httpOnly são acessíveis via `document.cookie` em JavaScript. Um XSS bem-sucedido pode roubar todos os cookies de sessão. httpOnly torna o cookie invisível ao JavaScript — XSS não consegue roubá-lo."
@@ -1649,7 +1814,19 @@
             "pass_criteria": "Cookies sensíveis com Secure flag. Transmitidos apenas via HTTPS.",
             "fail_criteria": "Cookies de sessão sem Secure flag. Possível transmissão via HTTP.",
             "false_positive_guidance": "Verificar se cookies, CSRF e expiração são configurados em middleware ou provider compartilhado antes de concluir fail por ausência local em um arquivo isolado.",
-            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente.",
+            "tooling": {
+              "preferred_tools": [
+                "curl"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "runtime_confirmation_optional",
+              "evidence_requirements": [
+                "code_snippet",
+                "runtime_probe"
+              ],
+              "confidence_effect": "Confirmação runtime opt-in via endpoint_base_url pode elevar confidence; ausência de endpoint mantém static_analysis sem penalização."
+            }
           },
           "remediation": "Configurar Secure: true em todos os cookies sensíveis. Garantir HTTPS em produção.",
           "context": "Cookie sem Secure flag é transmitido em requests HTTP não-criptografados. Em redes WiFi públicas, qualquer pessoa pode capturar o cookie com Wireshark. Com o cookie, atacante tem acesso completo à sessão do usuário."
@@ -1667,7 +1844,19 @@
             ],
             "pass_criteria": "SameSite=Strict ou Lax em cookies de sessão. Se None, combinado com Secure.",
             "fail_criteria": "SameSite ausente em cookies de sessão. SameSite=None sem Secure.",
-            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente.",
+            "tooling": {
+              "preferred_tools": [
+                "curl"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "runtime_confirmation_optional",
+              "evidence_requirements": [
+                "code_snippet",
+                "runtime_probe"
+              ],
+              "confidence_effect": "Confirmação runtime opt-in via endpoint_base_url pode elevar confidence; ausência de endpoint mantém static_analysis sem penalização."
+            }
           },
           "remediation": "Configurar SameSite=Strict (ideal) ou Lax (se cross-site necessário). Nunca None sem Secure.",
           "context": "SameSite controla se cookies são enviados em requests cross-site. SameSite=Strict: cookie nunca enviado em requests de outros sites (proteção máxima contra CSRF). SameSite=Lax: enviado em navegação de topo (links), não em sub-requests (forms, AJAX). Sem SameSite: cookie enviado em qualquer request cross-site (vulnerável a CSRF)."
@@ -1762,7 +1951,19 @@
             "pass_criteria": "HTTP redireciona para HTTPS. HSTS header presente. HTTPS obrigatório em todos os endpoints.",
             "fail_criteria": "Aplicação acessível via HTTP sem redirect. Sem HSTS. Mixed content.",
             "false_positive_guidance": "Confirmar se a configuração observada é de produção e não de teste/dev. Controles terminados no edge ou provider externo exigem partial/low quando não há evidência local suficiente.",
-            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente.",
+            "tooling": {
+              "preferred_tools": [
+                "curl"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "runtime_confirmation_optional",
+              "evidence_requirements": [
+                "code_snippet",
+                "runtime_probe"
+              ],
+              "confidence_effect": "Confirmação runtime opt-in via endpoint_base_url pode elevar confidence; ausência de endpoint mantém static_analysis sem penalização."
+            }
           },
           "remediation": "Configurar redirect 301 HTTP→HTTPS. Adicionar HSTS header (max-age=31536000; includeSubDomains; preload). Considerar HSTS preload list.",
           "context": "HTTP transmite dados em texto plano — credenciais, tokens de sessão, dados pessoais. Em redes compartilhadas, qualquer pessoa pode interceptar com Wireshark. HTTPS com HSTS previne downgrade attacks onde atacante força HTTP mesmo que usuário tente HTTPS."
@@ -1876,7 +2077,19 @@
             ],
             "pass_criteria": "CSP header presente e restritivo. Sem unsafe-inline/unsafe-eval desnecessários.",
             "fail_criteria": "CSP ausente. CSP com 'unsafe-inline' 'unsafe-eval' sem justificativa.",
-            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente.",
+            "tooling": {
+              "preferred_tools": [
+                "curl"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "runtime_confirmation_optional",
+              "evidence_requirements": [
+                "code_snippet",
+                "runtime_probe"
+              ],
+              "confidence_effect": "Confirmação runtime opt-in via endpoint_base_url pode elevar confidence; ausência de endpoint mantém static_analysis sem penalização."
+            }
           },
           "remediation": "Implementar CSP restritivo. Usar nonce ou hash para inline scripts. Reportar violations com report-uri.",
           "context": "Content-Security-Policy define de quais origens o browser pode carregar recursos. Um CSP bem configurado torna XSS não-explorável — mesmo que atacante injete `<script>`, o browser recusa executar se o script não vem de origem autorizada. CSP é a defesa mais efetiva contra XSS após auto-escaping."
@@ -1894,7 +2107,19 @@
             ],
             "pass_criteria": "HSTS com max-age >= 31536000, includeSubDomains. Preload se possível.",
             "fail_criteria": "HSTS ausente. max-age muito baixo. Sem includeSubDomains.",
-            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente.",
+            "tooling": {
+              "preferred_tools": [
+                "curl"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "runtime_confirmation_optional",
+              "evidence_requirements": [
+                "code_snippet",
+                "runtime_probe"
+              ],
+              "confidence_effect": "Confirmação runtime opt-in via endpoint_base_url pode elevar confidence; ausência de endpoint mantém static_analysis sem penalização."
+            }
           },
           "remediation": "Adicionar Strict-Transport-Security: max-age=31536000; includeSubDomains; preload.",
           "context": "HSTS instrui browsers a usar HTTPS exclusivamente por um período. Sem HSTS, mesmo com redirect HTTP→HTTPS no servidor, o primeiro request pode ser interceptado. HSTS preload lista o domínio no browser — proteção mesmo antes do primeiro acesso."
@@ -1912,7 +2137,19 @@
             ],
             "pass_criteria": "X-Frame-Options: DENY ou SAMEORIGIN. Ou CSP frame-ancestors configurado.",
             "fail_criteria": "Sem proteção contra clickjacking. Aplicação pode ser embedded em iframe de terceiros.",
-            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente.",
+            "tooling": {
+              "preferred_tools": [
+                "curl"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "runtime_confirmation_optional",
+              "evidence_requirements": [
+                "code_snippet",
+                "runtime_probe"
+              ],
+              "confidence_effect": "Confirmação runtime opt-in via endpoint_base_url pode elevar confidence; ausência de endpoint mantém static_analysis sem penalização."
+            }
           },
           "remediation": "Adicionar X-Frame-Options: DENY (ou SAMEORIGIN se iframe necessário). Preferir CSP frame-ancestors.",
           "context": "X-Frame-Options previne clickjacking — técnica onde site malicioso embute a aplicação em iframe transparente sobre botões do site atacante. Usuário pensa estar clicando no site malicioso mas está clicando na aplicação real (ex: 'Like' oculto, 'Transferir' oculto)."
@@ -1929,7 +2166,19 @@
             ],
             "pass_criteria": "X-Content-Type-Options: nosniff presente.",
             "fail_criteria": "Header ausente. Browser pode MIME-sniff conteúdo.",
-            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente.",
+            "tooling": {
+              "preferred_tools": [
+                "curl"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "runtime_confirmation_optional",
+              "evidence_requirements": [
+                "code_snippet",
+                "runtime_probe"
+              ],
+              "confidence_effect": "Confirmação runtime opt-in via endpoint_base_url pode elevar confidence; ausência de endpoint mantém static_analysis sem penalização."
+            }
           },
           "remediation": "Adicionar X-Content-Type-Options: nosniff em todas as respostas.",
           "context": "MIME sniffing é quando browser ignora Content-Type declarado e tenta detectar tipo pelo conteúdo. Um arquivo de upload com conteúdo HTML servido como text/plain pode ser renderizado como HTML pelo browser. nosniff instrui o browser a respeitar o Content-Type declarado."
@@ -1946,7 +2195,19 @@
             ],
             "pass_criteria": "Referrer-Policy configurado (strict-origin-when-cross-origin ou no-referrer).",
             "fail_criteria": "Header ausente. Referrer completo enviado a terceiros.",
-            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente.",
+            "tooling": {
+              "preferred_tools": [
+                "curl"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "runtime_confirmation_optional",
+              "evidence_requirements": [
+                "code_snippet",
+                "runtime_probe"
+              ],
+              "confidence_effect": "Confirmação runtime opt-in via endpoint_base_url pode elevar confidence; ausência de endpoint mantém static_analysis sem penalização."
+            }
           },
           "remediation": "Adicionar Referrer-Policy: strict-origin-when-cross-origin (ou no-referrer para máxima privacidade).",
           "context": "Referrer-Policy controla quais dados de URL são enviados no header Referer. Sem política, URL completa incluindo parâmetros (tokens em URL, dados sensíveis) é enviada para serviços de terceiros ao carregar recursos externos."
@@ -2096,7 +2357,19 @@
             "pass_criteria": "A configuração versionada indica TLS obrigatório ou terminação TLS no edge com backend apenas interno. Se endpoint_base_url for fornecido, a sonda confirma redirect HTTP->HTTPS e certificado válido.",
             "fail_criteria": "A configuração versionada expõe HTTP sem redirect, desabilita TLS ou a sonda runtime confirma acesso inseguro. Certificado expirado/self-signed só é fail quando confirmado pela sonda, não por inferência.",
             "false_positive_guidance": "TLS pode ser terminado em load balancer/CDN fora do repo. Sem endpoint nem IaC correspondente, evitar fail conclusivo e usar partial com confidence=low.",
-            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente.",
+            "tooling": {
+              "preferred_tools": [
+                "curl"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "runtime_confirmation_optional",
+              "evidence_requirements": [
+                "code_snippet",
+                "runtime_probe"
+              ],
+              "confidence_effect": "Confirmação runtime opt-in via endpoint_base_url pode elevar confidence; ausência de endpoint mantém static_analysis sem penalização."
+            }
           },
           "remediation": "Configurar HTTPS obrigatório. Redirect 301 em HTTP. Certificado válido (Let's Encrypt). HSTS header.",
           "context": "HTTPS é obrigatório para proteção de dados em trânsito. Ver CR-001 para detalhes."
@@ -2849,7 +3122,19 @@
             "pass_criteria": "O código/config local mostra CAPTCHA ou equivalente, velocity checks per user e/ou rate limit mais restritivo em fluxos abusáveis. Quando endpoint_base_url existe, a sonda runtime pode confirmar bloqueio após N ações.",
             "fail_criteria": "O código/config local não revela qualquer anti-automação relevante em fluxos críticos abusáveis. Se a proteção puder existir apenas no edge externo, usar partial com confidence=low.",
             "false_positive_guidance": "Aplicações B2B internas ou com whitelist de IPs podem dispensar CAPTCHA. Bot protection no edge (Cloudflare Turnstile/WAF) pode existir fora do repo; sem evidência local ou endpoint, preferir partial/low em vez de fail categórico.",
-            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente."
+            "confidence_guidance": "Tratar a análise estática como fonte primária. Sem endpoint_base_url ou sem corroboração runtime, manter heurísticas severas em medium no máximo; subir para high apenas com prova estática inequívoca ou confirmação runtime consistente.",
+            "tooling": {
+              "preferred_tools": [
+                "curl"
+              ],
+              "fallback_mode": "static_analysis",
+              "capability_requirement": "runtime_confirmation_optional",
+              "evidence_requirements": [
+                "code_snippet",
+                "runtime_probe"
+              ],
+              "confidence_effect": "Confirmação runtime opt-in via endpoint_base_url pode elevar confidence; ausência de endpoint mantém static_analysis sem penalização."
+            }
           },
           "remediation": "Implementar CAPTCHA (hCaptcha, Turnstile, reCAPTCHA v3) em endpoints críticos. Velocity checks per user (máximo N ações por janela). Device fingerprinting (FingerprintJS). Considerar proof-of-work para fluxos muito abusados. Monitorar comportamento anômalo e bloquear proativamente."
         },
