@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .boundary_paths import validate_hotfix_scope_entries
 from .constants import SCHEMA_VERSION
 from .errors import ESAAError
 from .projector import materialize
@@ -84,12 +85,13 @@ def validate_hotfix_request(
     # usa o escopo padrao em build_hotfix_event.
 
     if "scope_patch" in issue_payload:
-
         scope = issue_payload.get("scope_patch") or []
-
         if not scope or not isinstance(scope, list):
-
             return False, "HOTFIX_SCOPE_INVALID", "scope_patch ausente ou vazio"
+        try:
+            validate_hotfix_scope_entries(scope)
+        except ESAAError as exc:
+            return False, exc.code or "HOTFIX_SCOPE_INVALID", exc.message
 
     # 4. issue deve existir e estar open
 
@@ -154,7 +156,9 @@ def build_hotfix_event(
             "is_hotfix": True,
             "issue_id": issue_id,
             "fixes": fixes,
-            "scope_patch": issue_payload.get("scope_patch", ["src/hotfix/"]),
+            "scope_patch": validate_hotfix_scope_entries(
+                issue_payload.get("scope_patch", ["src/hotfix/"])
+            ),
             "required_verification": issue_payload.get("required_verification", ["unit", "regression"]),
             "baseline_id": issue_payload.get("affected", {}).get("baseline_id", "B-000"),
         },

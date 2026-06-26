@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 
@@ -107,6 +109,29 @@ def test_phase1_tool_capabilities_are_wired_into_phase2(repo_root: Path) -> None
         playbooks["execution_policy"]["tooling_policy"]["detection_schema"]
         == ".roadmap/tool-capabilities.schema.json"
     )
+
+
+def test_packaged_security_plugin_is_derived_from_security_roadmap(repo_root: Path) -> None:
+    result = subprocess.run(
+        [sys.executable, "scripts/sync_security_plugin.py", "--check"],
+        cwd=repo_root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_packaged_security_plugin_manifest_is_modern_and_complete(repo_root: Path) -> None:
+    manifest = _load_json(repo_root / "plugins/security-audit/0.1.0/plugin.json")
+    roadmap = _load_json(repo_root / "plugins/security-audit/0.1.0/roadmap.json")
+
+    assert manifest["schema_version"] == "esaa-plugin/v1"
+    assert manifest["entrypoints"]["roadmap"] == "roadmap.json"
+    assert len(roadmap["tasks"]) == 27
+    assert any(task["task_id"] == "SEC-026" for task in roadmap["tasks"])
+    assert roadmap["source_of_truth"]["path"] == ".roadmap/roadmap.security.json"
 
 
 def test_report_template_and_agent_schema_capture_multi_source_evidence(repo_root: Path) -> None:

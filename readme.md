@@ -652,6 +652,7 @@ The security contract suite covers playbook precision behavior, runtime enforcem
 | `.roadmap/report-template.security.json` | report projection contract | Deterministic scoring and final report projection template |
 | `src/esaa/security_audit.py` | runtime policy | Precision enforcement, `tool-capabilities` validation, and `precision_guidance` for dispatch-context |
 | `src/esaa/*` | esaa-core runtime | Modern ESAA core runtime surface ported into ESAA-Security, including deterministic CLI, runner metrics, input commands, plugin/roadmap operations, and edit-based file updates |
+| `plugins/security-audit/0.1.0/roadmap.json` | derived plugin artifact | Packaged roadmap generated from `.roadmap/roadmap.security.json`; refresh with `python3 scripts/sync_security_plugin.py` and verify with `python3 scripts/sync_security_plugin.py --check` |
 | `PARCER_v1.6.0-security-audit.yaml` | — | Source framework defining security domains, guardrails, and agent governance ([paper](https://arxiv.org/abs/2603.00856)) |
 
 ---

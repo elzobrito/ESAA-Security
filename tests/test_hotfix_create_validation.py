@@ -48,6 +48,19 @@ def test_validate_target_not_done(contract_bundle: Path) -> None:
     assert code == "HOTFIX_TARGET_NOT_DONE"
 
 
+def test_validate_scope_invalid_ambiguous_directory_prefix(contract_bundle: Path) -> None:
+    svc = ESAAService(contract_bundle)
+    svc.init(force=True)
+    _drive_to_done(svc, "T-1000")
+    events = parse_event_store(contract_bundle)
+    ok, code, _ = validate_hotfix_request(events, {
+        "issue_id": "ISS-Z", "fixes": "T-1000",
+        "scope_patch": ["src/hotfix"],
+    })
+    assert ok is False
+    assert code == "HOTFIX_SCOPE_INVALID"
+
+
 def test_validate_scope_invalid_empty(contract_bundle: Path) -> None:
     svc = ESAAService(contract_bundle)
     svc.init(force=True)

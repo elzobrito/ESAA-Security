@@ -1,0 +1,24 @@
+{
+  "schema_version": "esaa-plugin/v1",
+  "id": "security-audit",
+  "name": "Security Audit Plugin",
+  "version": "0.1.0",
+  "kind": "roadmap_plugin",
+  "esaa_core": {
+    "min_version": "0.5.0",
+    "max_version": "<0.6.0"
+  },
+  "entrypoints": {
+    "roadmap": "roadmap.json",
+    "input_example": "inputs/security-audit.local.example.json",
+    "input_schema": "schemas/security-audit-input.schema.json"
+  },
+  "task_id_namespace": "security-audit",
+  "capabilities": [
+    "planned_tasks",
+    "local_input",
+    "security_audit",
+    "static_first",
+    "optional_tooling"
+  ]
+}

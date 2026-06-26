@@ -449,12 +449,14 @@ class TaskAdminMixin:
         events = parse_event_store(self.root)
 
         # M-03: validacao agora ocorre dentro de build_hotfix_event.
+        from .boundary_paths import validate_hotfix_scope_entries
+
         event = build_hotfix_event(
             events,
             {
                 "issue_id": issue_id,
                 "fixes": fixes,
-                "scope_patch": scope_patch or ["src/hotfix/"],
+                "scope_patch": validate_hotfix_scope_entries(scope_patch or ["src/hotfix/"]),
             },
         )
 

@@ -31,6 +31,7 @@ from .utils import assert_safe_actor, normalize_rel_path
 from .validator import (
     validate_agent_output,
     validate_file_update_resource_limits,
+    validate_resolved_file_boundaries,
     validate_unique_file_update_paths,
 )
 
@@ -153,6 +154,7 @@ class SubmissionMixin:
             file_updates = _normalize_file_updates(self.root, file_updates)
             validate_file_update_resource_limits(file_updates, policy)
             file_updates = resolve_external_file_updates(self.root, task, file_updates)
+            validate_resolved_file_boundaries(file_updates, contract, task)
             validate_security_file_updates(self.root, file_updates)
             # FIX-1807: review_authorization=qa_role -> resolve role e injeta _reviewer_role no payload
             if validated_event["action"] == "review":
@@ -391,6 +393,7 @@ class SubmissionMixin:
         file_updates = _normalize_file_updates(self.root, file_updates)
         validate_file_update_resource_limits(file_updates, self._policy())
         file_updates = resolve_external_file_updates(self.root, task, file_updates)
+        validate_resolved_file_boundaries(file_updates, contract, task)
         validate_security_file_updates(self.root, file_updates)
         known_roadmap, _, _ = materialize(events + new_events)
         known_task_ids = {item["task_id"] for item in known_roadmap.get("tasks", [])}
